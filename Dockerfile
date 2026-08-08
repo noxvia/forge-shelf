@@ -66,6 +66,9 @@ RUN set -eux; \
     if [ "$INSTALL_SLICERS" = "true" ]; then \
       fetch_appimage orca "$ORCA_URL"; \
       fetch_appimage uvtools "$UVTOOLS_URL"; \
+      # .NET debug symbols ship in the AppImage and are dead weight in a
+      # container. The verification gate below still exercises the binary.
+      find /opt/uvtools -name '*.pdb' -delete; \
       # Prove the extraction produced what the app expects, rather than
       # discovering it is missing at the first slice.
       test -x /opt/orca/AppRun; \
@@ -172,18 +175,22 @@ RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
 
 WORKDIR /app
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/next.config.mjs ./next.config.mjs
-COPY --from=build /app/tsconfig.json ./tsconfig.json
-COPY --from=build /app/src ./src
+# Ownership is set during the copy. A later `chown -R` on /app would rewrite
+# every file's metadata, and overlayfs stores that as a full second copy of
+# node_modules and .next — 662 MB of pure duplication in the published image.
+COPY --from=build --chown=node:node /app/node_modules ./node_modules
+COPY --from=build --chown=node:node /app/.next ./.next
+COPY --from=build --chown=node:node /app/public ./public
+COPY --from=build --chown=node:node /app/prisma ./prisma
+COPY --from=build --chown=node:node /app/package.json ./package.json
+COPY --from=build --chown=node:node /app/next.config.mjs ./next.config.mjs
+COPY --from=build --chown=node:node /app/tsconfig.json ./tsconfig.json
+COPY --from=build --chown=node:node /app/src ./src
 
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && mkdir -p /data && chown -R node:node /data /app
+COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Only /data needs chown, and it is empty at this point.
+RUN mkdir -p /data && chown node:node /data
 
 USER node
 
