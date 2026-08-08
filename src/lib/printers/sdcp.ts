@@ -220,8 +220,9 @@ async function command(
 ): Promise<SdcpEnvelope> {
   if (!target.serial) {
     throw new PrinterError(
-      `${target.name} has no mainboard ID saved. Run discovery on the Printers page, ` +
-        `or copy it from the printer's network info screen.`,
+      `${target.name} has no mainboard ID saved, and SDCP needs one to address any ` +
+        `command. Press Refresh on the printer's card — that asks ${target.host} for it ` +
+        `directly and saves the answer.`,
     );
   }
 
@@ -285,7 +286,10 @@ async function command(
  */
 function requestStatus(target: PrinterTarget, timeoutMs = 10_000): Promise<SdcpEnvelope> {
   if (!target.serial) {
-    throw new PrinterError(`${target.name} has no mainboard ID saved.`);
+    throw new PrinterError(
+      `${target.name} has no mainboard ID saved. Press Refresh on its card to fetch it ` +
+        `from ${target.host}.`,
+    );
   }
 
   return open(target).then(
@@ -344,7 +348,12 @@ function parseStatus(msg: SdcpEnvelope): PrinterStatus {
   const status = (msg.Status ?? (msg.Data?.Status as Record<string, unknown>) ?? {}) as {
     CurrentStatus?: number[] | number;
     PrintInfo?: SdcpPrintInfo;
+    // Firmware disagrees on the name. A Saturn 4 Ultra on V1.5.3 sends
+    // TempOfUVLED; the published spec calls it UvledTempSensor. Accept both.
+    TempOfUVLED?: number;
     UvledTempSensor?: number;
+    /** Exposures since the release film was last reset — FEP wear tracking. */
+    ReleaseFilm?: number;
   };
 
   const machine = Array.isArray(status.CurrentStatus)
@@ -397,7 +406,7 @@ function parseStatus(msg: SdcpEnvelope): PrinterStatus {
     layerTotal,
     etaSeconds: eta,
     jobName: info.Filename ?? null,
-    uvLedTemp: numOrNull(status.UvledTempSensor),
+    uvLedTemp: numOrNull(status.TempOfUVLED) ?? numOrNull(status.UvledTempSensor),
     message: info.ErrorNumber ? `Printer error code ${info.ErrorNumber}` : null,
     raw: msg,
   };

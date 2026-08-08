@@ -5,7 +5,13 @@ import { sdcpAdapter } from './sdcp';
 import { PrinterError, targetFor, type PrinterAdapter, type PrinterTarget } from './types';
 
 export * from './types';
-export { discoverAll, discoverSdcp, discoverBambu, type Discovered } from './discovery';
+export {
+  discoverAll,
+  discoverSdcp,
+  discoverBambu,
+  probeSdcpHost,
+  type Discovered,
+} from './discovery';
 
 const ADAPTERS: Record<PrinterKind, PrinterAdapter> = {
   [PrinterKind.FDM_BAMBU]: bambuAdapter,

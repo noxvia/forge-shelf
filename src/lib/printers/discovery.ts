@@ -132,6 +132,66 @@ export function discoverSdcp(timeoutMs = 3000): Promise<Discovered[]> {
   });
 }
 
+/**
+ * Asks one printer, by address, to identify itself.
+ *
+ * This is the same "M99999" packet as the broadcast sweep, sent unicast — which
+ * matters because unicast crosses Docker's bridge network and broadcast does
+ * not. It is how a printer added by IP gets its mainboard ID without the user
+ * having to find it, and without host networking.
+ */
+export function probeSdcpHost(host: string, timeoutMs = 2500): Promise<Discovered | null> {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket({ type: 'udp4' });
+    let settled = false;
+
+    const finish = (value: Discovered | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        socket.close();
+      } catch {
+        /* already closed */
+      }
+      resolve(value);
+    };
+
+    const timer = setTimeout(() => finish(null), timeoutMs);
+
+    socket.on('error', () => finish(null));
+
+    socket.on('message', (buf, rinfo) => {
+      try {
+        const reply = JSON.parse(buf.toString()) as SdcpDiscoveryReply;
+        const d = reply.Data;
+        if (!d?.MainboardID) return;
+
+        const size = parseXyz(d.XYZsize);
+        finish({
+          kind: PrinterKind.RESIN_SDCP,
+          host: d.MainboardIP || rinfo.address,
+          name: d.MachineName || d.Name || 'Resin printer',
+          serial: d.MainboardID,
+          modelName: d.MachineName || d.Name || null,
+          firmware: d.FirmwareVersion ?? null,
+          buildX: size?.x ?? null,
+          buildY: size?.y ?? null,
+          buildZ: size?.z ?? null,
+          needsSecret: false,
+        });
+      } catch {
+        // Not an SDCP reply.
+      }
+    });
+
+    const probe = Buffer.from('M99999');
+    socket.send(probe, 0, probe.length, 3000, host, (err) => {
+      if (err) finish(null);
+    });
+  });
+}
+
 /** SDCP reports build volume as "218.88x122.88x220". */
 function parseXyz(raw: string | undefined): { x: number; y: number; z: number } | null {
   if (!raw) return null;

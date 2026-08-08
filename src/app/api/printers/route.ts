@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { ok, handler, HttpError } from '@/lib/json';
 import { encryptSecret } from '@/lib/crypto';
 import { PRINTER_SAFE_SELECT } from '@/lib/printers/select';
+import { probeSdcpHost } from '@/lib/printers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,9 +73,32 @@ export const POST = handler(async (req: Request) => {
     throw new HttpError(`"${duplicate.name}" is already configured at ${rest.host}`, 409);
   }
 
+  // A resin printer added by IP has no mainboard ID, and SDCP cannot address a
+  // single command without one. Ask the printer directly rather than making the
+  // user hunt for it — a unicast probe works from inside Docker's bridge
+  // network, where the broadcast sweep on the Printers page cannot reach.
+  const details = { ...rest };
+  if (details.kind === PrinterKind.RESIN_SDCP && !details.serial) {
+    const found = await probeSdcpHost(details.host).catch(() => null);
+    if (found) {
+      details.serial = found.serial;
+      details.modelName ??= found.modelName;
+      details.buildX ??= found.buildX;
+      details.buildY ??= found.buildY;
+      details.buildZ ??= found.buildZ;
+    } else {
+      throw new HttpError(
+        `Could not reach an SDCP printer at ${details.host}. Check the address and that ` +
+          `the printer is powered on and on the network. If it is reachable but still ` +
+          `won't identify itself, enter the mainboard ID manually.`,
+        502,
+      );
+    }
+  }
+
   const printer = await prisma.printer.create({
     data: {
-      ...rest,
+      ...details,
       secretEnc: accessCode ? encryptSecret(accessCode) : null,
     },
     select: PRINTER_SAFE_SELECT,
