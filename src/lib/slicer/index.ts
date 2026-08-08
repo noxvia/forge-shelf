@@ -6,6 +6,7 @@ import { exists } from './run';
 import type { SlicerAdapter } from './types';
 
 export * from './types';
+export * from './options';
 export { orcaAdapter, slaAdapter };
 
 export function adapterFor(technology: Technology): SlicerAdapter {

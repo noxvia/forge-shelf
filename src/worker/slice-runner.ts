@@ -5,6 +5,7 @@ import { prisma } from '../lib/db';
 import { env } from '../lib/env';
 import { absPath, sliceDirRelPath, safeName } from '../lib/storage';
 import { adapterFor, SliceFailedError, SlicerUnavailableError } from '../lib/slicer';
+import type { SliceOptions } from '../lib/slicer/options';
 
 /** Keep the tail of a long slicer log; the head is rarely the interesting part. */
 const LOG_LIMIT = 20_000;
@@ -51,6 +52,7 @@ export async function runNextSlice(): Promise<boolean> {
       inputPath: absPath(task.inputFile.storagePath),
       workDir,
       profile: task.profile,
+      options: (task.options ?? null) as SliceOptions | null,
       timeoutMs: env.sliceTimeoutMs,
       onLog: (line) => {
         logLines.push(line);

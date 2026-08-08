@@ -3,6 +3,7 @@ import { FileKind } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { ok, handler, HttpError } from '@/lib/json';
 import { technologyFor } from '@/lib/printers';
+import { sliceOptionsSchema, slaOptionWarnings } from '@/lib/slicer/options';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,8 @@ const body = z.object({
   profileId: z.string().min(1),
   /** Queue a print on this printer as soon as the slice succeeds. */
   autoPrintPrinterId: z.string().min(1).nullable().optional(),
+  /** Per-slice overrides layered on top of the profile. */
+  options: sliceOptionsSchema.optional(),
 });
 
 /**
@@ -21,7 +24,7 @@ const body = z.object({
 export const POST = handler(async (req: Request) => {
   const parsed = body.safeParse(await req.json());
   if (!parsed.success) throw new HttpError(parsed.error.issues[0].message, 422);
-  const { fileId, profileId, autoPrintPrinterId } = parsed.data;
+  const { fileId, profileId, autoPrintPrinterId, options } = parsed.data;
 
   const file = await prisma.modelFile.findUnique({
     where: { id: fileId },
@@ -62,14 +65,21 @@ export const POST = handler(async (req: Request) => {
   }
 
   const task = await prisma.sliceTask.create({
-    data: { inputFileId: fileId, profileId, autoPrintPrinterId: autoPrintPrinterId ?? null },
+    data: {
+      inputFileId: fileId,
+      profileId,
+      autoPrintPrinterId: autoPrintPrinterId ?? null,
+      options: options ? (options as never) : undefined,
+    },
     include: {
       profile: { select: { name: true, technology: true, outputFormat: true } },
       inputFile: { select: { filename: true, modelId: true } },
     },
   });
 
-  return ok(task, { status: 202 });
+  // Not blocking — these are print-safety notes, not validation failures. The
+  // UI shows them so an unattended hollow print doesn't surprise anyone.
+  return ok({ ...task, warnings: slaOptionWarnings(options) }, { status: 202 });
 });
 
 export const GET = handler(async (req: Request) => {

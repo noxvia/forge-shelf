@@ -177,6 +177,28 @@ the process preset", because compatibility is matched on printer identity the
 stub doesn't carry. To customise, export a complete preset from the OrcaSlicer
 GUI and paste that JSON in — the adapter accepts a preset name or full JSON.
 
+### Resin: what's automated and what isn't
+
+| | |
+|---|---|
+| Auto support points and trees | ✅ pillar or branching |
+| Pad / raft, elephant-foot compensation | ✅ |
+| Hollowing with wall thickness | ✅ per model |
+| Orientation (tilt X/Y), scale | ✅ per model |
+| Exposure and layer height | ✅ per model |
+| **Drain holes** | ❌ **PrusaSlicer can only place these in its GUI** |
+| Manual support placement / enforcers | ❌ GUI-only |
+| Auto-orientation | ❌ doesn't exist for SLA |
+
+Profiles set the baseline; the **Resin options** panel on a model overrides any of
+it for that one slice, so hollowing a single miniature doesn't mean cloning a
+profile. Untouched controls inherit from the profile rather than forcing a default.
+
+> **Hollowing without drain holes traps uncured resin.** A sealed shell can
+> suction against the FEP and burst. The app warns when you enable it. Add drain
+> holes in a mesh editor (Blender, Lychee, ChiTuBox) before uploading, or print
+> solid.
+
 **Resin profiles** are PrusaSlicer INI in SLA mode. Display resolution, panel
 dimensions and exposure times all live in the machine config — PrusaSlicer has no
 vendor presets for Elegoo or Anycubic hardware, so every value has to be explicit.

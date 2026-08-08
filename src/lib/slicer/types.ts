@@ -1,4 +1,5 @@
 import type { SlicerProfile } from '@prisma/client';
+import type { SliceOptions } from './options';
 
 export interface SliceRequest {
   /** Absolute path to the input mesh. */
@@ -6,6 +7,8 @@ export interface SliceRequest {
   /** Absolute path to an empty working directory the adapter owns. */
   workDir: string;
   profile: SlicerProfile;
+  /** Per-slice overrides layered on top of the profile. */
+  options?: SliceOptions | null;
   /** Called with each line of slicer output so progress can be streamed. */
   onLog?: (line: string) => void;
   timeoutMs: number;

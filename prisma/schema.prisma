@@ -179,6 +179,11 @@ model SliceTask {
   log    String?
   error  String?
 
+  /// Per-slice overrides layered on top of the profile: hollowing, supports,
+  /// orientation and scale. Resin especially needs these per model rather than
+  /// per profile.
+  options Json?
+
   /// If set, the worker queues a print on this printer once slicing succeeds.
   autoPrintPrinterId String?
 

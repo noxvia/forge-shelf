@@ -28,6 +28,7 @@ import type {
   SliceTask,
 } from '@/lib/types';
 import { FILE_KIND_LABEL } from '@/lib/types';
+import { ResinOptions, type ResinOptionsValue } from './ResinOptions';
 
 // The viewer pulls in three.js and touches WebGL; keep it off the server.
 const ModelViewer = dynamicImport(
@@ -51,6 +52,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -96,8 +98,10 @@ export function ModelDetail({ modelId }: { modelId: string }) {
     setBusy(true);
     setError(null);
     try {
-      await fn();
+      const result = (await fn()) as { warnings?: string[] } | undefined;
       flash(success);
+      // Print-safety notes travel with the response rather than blocking it.
+      setWarnings(result?.warnings?.length ? result.warnings : []);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -194,6 +198,12 @@ export function ModelDetail({ modelId }: { modelId: string }) {
       )}
       {error && <p className="rounded bg-bad/10 px-3 py-2 text-sm text-bad">{error}</p>}
 
+      {warnings.map((w) => (
+        <p key={w} className="rounded bg-warn/10 px-3 py-2 text-sm text-warn">
+          {w}
+        </p>
+      ))}
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-4">
           {viewable && selectedFile ? (
@@ -227,9 +237,9 @@ export function ModelDetail({ modelId }: { modelId: string }) {
             printers={printers}
             profiles={profiles}
             busy={busy}
-            onSlice={(fileId, profileId, autoPrintPrinterId) =>
+            onSlice={(fileId, profileId, autoPrintPrinterId, options) =>
               act(
-                () => post('/api/slice', { fileId, profileId, autoPrintPrinterId }),
+                () => post('/api/slice', { fileId, profileId, autoPrintPrinterId, options }),
                 'Slice queued — it will appear below when it finishes',
               )
             }
@@ -417,7 +427,12 @@ function SliceAndPrint({
   printers: Printer[];
   profiles: SlicerProfile[];
   busy: boolean;
-  onSlice: (fileId: string, profileId: string, autoPrintPrinterId: string | null) => void;
+  onSlice: (
+    fileId: string,
+    profileId: string,
+    autoPrintPrinterId: string | null,
+    options?: ResinOptionsValue,
+  ) => void;
   onPrint: (fileId: string, printerId: string) => void;
 }) {
   const meshes = model.files.filter((f) => f.kind === 'MESH');
@@ -426,6 +441,7 @@ function SliceAndPrint({
   const [meshId, setMeshId] = useState(meshes[0]?.id ?? '');
   const [profileId, setProfileId] = useState('');
   const [autoPrint, setAutoPrint] = useState('');
+  const [resinOptions, setResinOptions] = useState<ResinOptionsValue>({});
   const [printFileId, setPrintFileId] = useState(sliced[0]?.id ?? '');
   const [printerId, setPrinterId] = useState('');
 
@@ -515,11 +531,24 @@ function SliceAndPrint({
               </select>
             </div>
 
+            {selectedProfile?.technology === 'SLA' && (
+              <ResinOptions value={resinOptions} onChange={setResinOptions} />
+            )}
+
             <button
               type="button"
               className="btn-primary w-full justify-center"
               disabled={busy || !meshId || !profileId}
-              onClick={() => onSlice(meshId, profileId, autoPrint || null)}
+              onClick={() =>
+                onSlice(
+                  meshId,
+                  profileId,
+                  autoPrint || null,
+                  selectedProfile?.technology === 'SLA' && Object.keys(resinOptions).length > 0
+                    ? resinOptions
+                    : undefined,
+                )
+              }
             >
               <Scissors size={14} />
               Slice

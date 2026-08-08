@@ -3,6 +3,7 @@ import path from 'node:path';
 import { unzipSync, strFromU8 } from 'fflate';
 import { env } from '../env';
 import { run, exists, listFiles } from './run';
+import { slaOptionArgs } from './options';
 import {
   SliceFailedError,
   SlicerUnavailableError,
@@ -63,11 +64,14 @@ export const slaAdapter: SlicerAdapter = {
       req.onLog?.(line);
     };
 
+    // Order matters: --load brings in the profile, then per-slice flags override
+    // it, then the profile's own extraArgs get the last word.
     const sliceRun = await run(
       bin,
       [
         '--export-sla',
         '--load', iniPath,
+        ...slaOptionArgs(req.options),
         '--output', sl1Path,
         ...extraArgs(profile.extraArgs),
         inputPath,
