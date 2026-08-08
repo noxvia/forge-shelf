@@ -32,10 +32,11 @@ jobs:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
           APP_SECRET: ci-only-not-a-real-secret
 
+  # Pull requests get an image build too, so a broken Dockerfile is caught before
+  # merge. On main this is skipped — release.yml builds and publishes for real.
   docker:
     runs-on: ubuntu-latest
-    # The slicer layer pulls ~1 GB of AppImages; only pay for it on main.
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -46,8 +47,7 @@ jobs:
         with:
           context: .
           push: false
-          # Skip the slicer download in CI — it verifies the app layers build,
-          # which is what breaks. The release URLs are checked at deploy time.
+          # Skip the slicer download here — this checks that the app layers
+          # build, which is what actually breaks in a PR.
           build-args: INSTALL_SLICERS=false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=slim

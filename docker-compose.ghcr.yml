@@ -1,0 +1,75 @@
+# Pull-only deployment. No build step, no source checkout needed beyond this
+# file and a .env.
+#
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Set IMAGE in .env to pick a tag:
+#   ghcr.io/<you>/<repo>:latest   full — includes the slicer toolchain (amd64)
+#   ghcr.io/<you>/<repo>:slim     no slicers, much smaller, amd64 + arm64
+#
+# This is a complete stack, not an override — don't combine it with
+# docker-compose.yml.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-forgeshelf}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-forge} -d ${POSTGRES_DB:-forgeshelf}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    image: ${IMAGE:?set IMAGE in .env, e.g. ghcr.io/you/forge-shelf:latest}
+    restart: unless-stopped
+    command: ['web']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      STORAGE_DIR: /data
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
+      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
+      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
+    ports:
+      - '${APP_PORT:-8770}:3000'
+    volumes:
+      - ./data:/data
+
+  worker:
+    image: ${IMAGE:?set IMAGE in .env}
+    restart: unless-stopped
+    command: ['worker']
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      STORAGE_DIR: /data
+      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
+      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      SLICE_TIMEOUT_SECONDS: ${SLICE_TIMEOUT_SECONDS:-900}
+      WORKER_POLL_MS: ${WORKER_POLL_MS:-3000}
+      PRINTER_POLL_MS: ${PRINTER_POLL_MS:-10000}
+      SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
+    volumes:
+      - ./data:/data
+
+volumes:
+  pgdata:

@@ -36,6 +36,8 @@ and temperatures. Pause, resume and stop from the jobs page.
 
 ## Quick start
 
+Either way, start here:
+
 ```bash
 git clone https://github.com/YOUR-USERNAME/forge-shelf.git
 cd forge-shelf
@@ -48,29 +50,63 @@ Edit `.env` — at minimum set `POSTGRES_PASSWORD` and `APP_SECRET`:
 openssl rand -hex 32
 ```
 
-Then bring it up:
+### Option A — pull a prebuilt image (recommended)
+
+GitHub Actions builds and publishes to GHCR on every push to `main`. The host just
+pulls; no slicer downloads, no build.
+
+Set `IMAGE` in `.env`:
+
+```bash
+IMAGE=ghcr.io/YOUR-USERNAME/YOUR-REPO:latest
+```
+
+Then:
+
+```bash
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Two tags are published:
+
+| Tag | Contents | Platforms |
+|---|---|---|
+| `latest` | Full — includes OrcaSlicer, PrusaSlicer, UVtools (~2.5 GB) | `amd64` |
+| `slim` | No slicers; catalogue and send pre-sliced files (~400 MB) | `amd64`, `arm64` |
+
+`latest` is amd64 only because all three slicers ship exclusively as x86_64
+AppImages — there is nothing to install on arm64. Raspberry Pi and Apple Silicon
+hosts want `slim`.
+
+> **First publish is private.** GHCR packages default to private even on a public
+> repo, so `docker pull` will 401 until you open the package on GitHub →
+> *Package settings* → *Change visibility* → **Public**. To keep it private
+> instead, run `docker login ghcr.io` on the host with a personal access token
+> that has `read:packages`.
+
+### Option B — build from source on the host
 
 ```bash
 docker compose up -d --build
 ```
 
-The first build downloads OrcaSlicer, PrusaSlicer and UVtools, so expect it to take
-a while and produce a ~2.5 GB image. Open <http://localhost:8770>.
-
-For a small, fast image without slicing (catalogue plus sending pre-sliced files):
+The first build downloads the slicers, so expect it to take a while. For a small,
+fast image without slicing:
 
 ```bash
 docker compose build --build-arg INSTALL_SLICERS=false
 ```
 
+Open <http://localhost:8770>.
+
 ### Updating
 
 ```bash
-./scripts/deploy.sh
+./scripts/deploy.sh          # option B: git pull, rebuild, restart
+./scripts/deploy.sh --pull   # option A: git pull, pull image, restart
 ```
 
-Pulls, rebuilds, restarts, and waits for the health endpoint. That's the whole
-deploy loop.
+Both wait for the health endpoint and dump logs if it doesn't come up.
 
 ---
 
