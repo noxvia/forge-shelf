@@ -1,0 +1,259 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum FileKind {
+  MESH // .stl .3mf .obj .step — printable geometry
+  SLICED // .gcode .gcode.3mf .ctb .goo .sl1 — machine-ready
+  IMAGE // renders, reference photos
+  DOC // instructions, licences, readmes
+  ARCHIVE // the original .zip a model came in
+}
+
+enum Technology {
+  FDM
+  SLA
+}
+
+enum PrinterKind {
+  FDM_BAMBU // Bambu Lab, LAN mode (MQTT + FTPS)
+  RESIN_SDCP // Elegoo / Anycubic ChiTu SDCP over LAN
+}
+
+enum TaskStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  QUEUED
+  UPLOADING
+  STARTING
+  PRINTING
+  PAUSED
+  DONE
+  FAILED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Catalogue
+// ---------------------------------------------------------------------------
+
+model Model {
+  id            String   @id @default(cuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  designer      String?
+  sourceUrl     String?
+  license       String?
+  notes         String?
+  /// Path relative to STORAGE_DIR, e.g. "thumbs/<id>.png"
+  thumbnailPath String?
+  favorite      Boolean  @default(false)
+  printCount    Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  files       ModelFile[]
+  tags        Tag[]        @relation("ModelTags")
+  collections Collection[] @relation("ModelCollections")
+  jobs        PrintJob[]
+
+  @@index([createdAt])
+  @@index([favorite])
+}
+
+model ModelFile {
+  id      String @id @default(cuid())
+  modelId String
+  model   Model  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  kind     FileKind
+  filename String
+  /// Path relative to STORAGE_DIR
+  storagePath String
+  mime        String?
+  sizeBytes   BigInt
+  sha256      String?
+
+  // Mesh statistics — populated for FileKind.MESH
+  triangles  Int?
+  bboxX      Float?
+  bboxY      Float?
+  bboxZ      Float?
+  volumeMm3  Float?
+  /// For SLICED files: which technology the output targets
+  technology Technology?
+
+  /// Adapter-specific extras: layer count, est. time, filament grams, resin ml…
+  meta Json?
+
+  createdAt DateTime @default(now())
+
+  sliceInputs  SliceTask[] @relation("SliceInput")
+  sliceOutputs SliceTask[] @relation("SliceOutput")
+  jobs         PrintJob[]
+
+  @@index([modelId])
+  @@index([kind])
+  @@index([sha256])
+}
+
+model Tag {
+  id     String  @id @default(cuid())
+  name   String
+  slug   String  @unique
+  color  String?
+  models Model[] @relation("ModelTags")
+}
+
+model Collection {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  models      Model[]  @relation("ModelCollections")
+}
+
+// ---------------------------------------------------------------------------
+// Slicing
+// ---------------------------------------------------------------------------
+
+model SlicerProfile {
+  id          String      @id @default(cuid())
+  name        String      @unique
+  technology  Technology
+  /// Restricts this profile to one printer family; null means any.
+  printerKind PrinterKind?
+  description String?
+
+  /// Raw slicer configuration, stored inline so profiles are portable and
+  /// survive container rebuilds. FDM profiles hold OrcaSlicer JSON bundles;
+  /// SLA profiles hold PrusaSlicer .ini text.
+  machineConfig  String?
+  processConfig  String?
+  materialConfig String?
+
+  /// Extension of the produced file: "gcode.3mf", "ctb", "goo", "sl1"…
+  outputFormat String
+  /// Extra CLI arguments, whitespace separated.
+  extraArgs    String?
+
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks SliceTask[]
+
+  @@index([technology])
+}
+
+model SliceTask {
+  id String @id @default(cuid())
+
+  inputFileId String
+  inputFile   ModelFile @relation("SliceInput", fields: [inputFileId], references: [id], onDelete: Cascade)
+
+  outputFileId String?
+  outputFile   ModelFile? @relation("SliceOutput", fields: [outputFileId], references: [id], onDelete: SetNull)
+
+  profileId String
+  profile   SlicerProfile @relation(fields: [profileId], references: [id])
+
+  status TaskStatus @default(QUEUED)
+  log    String?
+  error  String?
+
+  /// If set, the worker queues a print on this printer once slicing succeeds.
+  autoPrintPrinterId String?
+
+  createdAt  DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Printers & jobs
+// ---------------------------------------------------------------------------
+
+model Printer {
+  id   String      @id @default(cuid())
+  name String
+  kind PrinterKind
+
+  host String
+  port Int?
+  /// Bambu: device serial (required). SDCP: mainboard id (discovered).
+  serial String?
+  /// AES-256-GCM ciphertext of the LAN access code. Never leaves the server.
+  secretEnc String?
+
+  modelName String?
+  buildX    Float?
+  buildY    Float?
+  buildZ    Float?
+
+  /// Last known coarse state: idle | printing | paused | offline | error
+  status     String    @default("unknown")
+  /// Full last status payload from the adapter, for the detail panel.
+  statusJson Json?
+  lastSeenAt DateTime?
+  lastError  String?
+
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  jobs PrintJob[]
+
+  @@unique([kind, host])
+}
+
+model PrintJob {
+  id String @id @default(cuid())
+
+  printerId String
+  printer   Printer @relation(fields: [printerId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   ModelFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  modelId String?
+  model   Model?  @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  status   JobStatus @default(QUEUED)
+  progress Int       @default(0)
+
+  layerCurrent Int?
+  layerTotal   Int?
+  etaSeconds   Int?
+
+  /// Filename as it exists on the printer's storage.
+  remoteFilename String?
+  error          String?
+  log            String?
+
+  queuedAt   DateTime  @default(now())
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  @@index([status, queuedAt])
+  @@index([printerId])
+}

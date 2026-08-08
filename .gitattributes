@@ -1,0 +1,26 @@
+# Anything that runs inside the Linux containers must keep LF endings. A CRLF
+# checkout on Windows followed by `docker build` produces
+# "bad interpreter: /bin/sh^M" — silent until deploy.
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+.env.example    text eol=lf
+
+# Source is LF everywhere for consistent diffs.
+*.ts            text eol=lf
+*.tsx           text eol=lf
+*.js            text eol=lf
+*.mjs           text eol=lf
+*.json          text eol=lf
+*.css           text eol=lf
+*.prisma        text eol=lf
+*.md            text eol=lf
+
+# Never touch binaries.
+*.png           binary
+*.jpg           binary
+*.stl           binary
+*.3mf           binary
+*.ctb           binary
+*.goo           binary

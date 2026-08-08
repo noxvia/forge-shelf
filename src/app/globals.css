@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-bg text-ink antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-edge rounded;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply bg-panel2 border border-edge rounded px-3 py-2 text-sm outline-none;
+  }
+  input:focus,
+  textarea:focus,
+  select:focus {
+    @apply border-accent2;
+  }
+
+  /* Firefox renders number spinners badly in a dark theme; drop them. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-sm font-medium
+           transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-bg hover:bg-accent/85;
+  }
+  .btn-secondary {
+    @apply btn bg-panel2 border border-edge text-ink hover:border-muted;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:text-ink hover:bg-panel2;
+  }
+  .btn-danger {
+    @apply btn bg-bad/15 border border-bad/40 text-bad hover:bg-bad/25;
+  }
+
+  .card {
+    @apply bg-panel border border-edge rounded-lg;
+  }
+
+  .label {
+    @apply block text-xs font-medium text-muted mb-1;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs
+           border border-edge bg-panel2;
+  }
+}

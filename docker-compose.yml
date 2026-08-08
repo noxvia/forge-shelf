@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-forgeshelf}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-forge} -d ${POSTGRES_DB:-forgeshelf}']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      args:
+        INSTALL_SLICERS: ${INSTALL_SLICERS:-true}
+    image: ${IMAGE:-forge-shelf:local}
+    restart: unless-stopped
+    command: ['web']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      STORAGE_DIR: /data
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
+      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
+      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
+    ports:
+      - '${APP_PORT:-8770}:3000'
+    volumes:
+      - ./data:/data
+
+  worker:
+    build:
+      context: .
+      args:
+        INSTALL_SLICERS: ${INSTALL_SLICERS:-true}
+    image: ${IMAGE:-forge-shelf:local}
+    restart: unless-stopped
+    command: ['worker']
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
+      STORAGE_DIR: /data
+      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
+      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      SLICE_TIMEOUT_SECONDS: ${SLICE_TIMEOUT_SECONDS:-900}
+      WORKER_POLL_MS: ${WORKER_POLL_MS:-3000}
+      PRINTER_POLL_MS: ${PRINTER_POLL_MS:-10000}
+      SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
+    volumes:
+      - ./data:/data
+
+volumes:
+  pgdata:

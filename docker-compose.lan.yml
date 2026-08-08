@@ -1,0 +1,22 @@
+# Optional override: run web + worker on the host network.
+#
+# Only needed for *automatic* printer discovery, which relies on UDP broadcast
+# and cannot cross Docker's bridge network. Adding a printer by IP address works
+# fine without this. Linux hosts only (host networking is not supported on
+# Docker Desktop for Windows/macOS in the general case).
+#
+#   1. Point DATABASE_URL at 127.0.0.1 instead of "db" in .env
+#   2. docker compose -f docker-compose.yml -f docker-compose.lan.yml up -d
+#
+services:
+  db:
+    ports:
+      - '127.0.0.1:5432:5432'
+
+  web:
+    network_mode: host
+    environment:
+      PORT: ${APP_PORT:-8770}
+
+  worker:
+    network_mode: host

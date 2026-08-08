@@ -1,0 +1,24 @@
+# Development override: only Postgres in Docker, app + worker run on the host
+# with hot reload.
+#
+#   docker compose -f docker-compose.dev.yml up -d
+#   npm install
+#   npx prisma migrate dev
+#   npm run dev          # in one terminal
+#   npm run dev:worker   # in another
+#
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-forge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-forge}
+      POSTGRES_DB: ${POSTGRES_DB:-forgeshelf}
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:
