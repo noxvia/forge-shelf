@@ -78,11 +78,11 @@ Two tags are published:
 AppImages — there is nothing to install on arm64. Raspberry Pi and Apple Silicon
 hosts want `slim`.
 
-> **First publish is private.** GHCR packages default to private even on a public
-> repo, so `docker pull` will 401 until you open the package on GitHub →
-> *Package settings* → *Change visibility* → **Public**. To keep it private
-> instead, run `docker login ghcr.io` on the host with a personal access token
-> that has `read:packages`.
+> **No login needed.** Packages published by Actions inherit the repository's
+> visibility, so on a public repo the image pulls anonymously — verified against
+> the live registry. If you later make the repo private the package follows it,
+> and hosts will then need `docker login ghcr.io` with a token carrying
+> `read:packages`.
 
 ### Option A2 — one file, no checkout
 
@@ -242,9 +242,18 @@ in particular carries a URL scheme that varies by model and firmware — if a pr
 uploads but won't start, that constant in `src/lib/printers/bambu.ts` is the first
 thing to change, and the alternatives are listed in a comment right there.
 
-**Slicer release URLs move.** The Dockerfile pins specific AppImage releases and
-*warns instead of failing* when one 404s, because a dead URL shouldn't block a
-catalogue-only deploy. The System page tells you what's actually installed.
+**Slicer release URLs move, and this already bit once.** The first published
+image contained no working slicers at all: two pinned AppImage URLs had 404'd and
+the build only warned, so a 3 GB image shipped that silently could not slice.
+The build now *fails* when `INSTALL_SLICERS=true` and any binary is missing, and
+verifies each one is executable before the image is tagged. If a build goes red
+on a download step, override the matching `*_URL` build arg.
+
+**PrusaSlicer comes from Debian, not upstream.** Prusa no longer publishes Linux
+AppImages on GitHub, so the SLA path uses Debian's `prusa-slicer` package —
+currently 2.5.0, older than upstream. It slices SLA fine, but it predates the
+`sla_archive_format` option, which is why the seeded resin profiles don't set it
+(SL1 is the default output, and UVtools converts from there regardless).
 
 **There is no authentication.** Anyone who can reach the port has full control of
 your library and your printers. Put it behind a reverse proxy with auth, or keep it

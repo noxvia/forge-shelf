@@ -107,7 +107,11 @@ export const slaAdapter: SlicerAdapter = {
     if (!(await exists(uv))) throw new SlicerUnavailableError('UVtools', uv);
 
     const convertedPath = path.join(outDir, `print.${target}`);
-    const convertRun = await run(uv, ['convert', sl1, convertedPath], {
+    // UVtools takes three arguments: input, target encoder, output. Passing a
+    // bare extension fails for anything claimed by more than one encoder —
+    // ".ctb" belongs to both Chitubox and CTBEncrypted — so ambiguous ones are
+    // mapped to the strict encoder name UVtools asks for.
+    const convertRun = await run(uv, ['convert', sl1, uvtoolsEncoder(target), convertedPath], {
       cwd: workDir,
       timeoutMs: req.timeoutMs,
       onLog: collect,
@@ -140,6 +144,25 @@ export const slaAdapter: SlicerAdapter = {
 
 function extraArgs(raw: string | null): string[] {
   return raw?.trim() ? raw.trim().split(/\s+/) : [];
+}
+
+/**
+ * Maps an output extension to the UVtools encoder that should produce it.
+ *
+ * Only extensions claimed by more than one encoder need this; UVtools resolves
+ * the rest on its own and refuses the ambiguous ones outright with
+ * "the extension is shared by multiple encoders, use the strict encoder name".
+ * Anything unmapped is passed straight through, so a profile can name any
+ * encoder UVtools supports without a change here.
+ */
+function uvtoolsEncoder(format: string): string {
+  const AMBIGUOUS: Record<string, string> = {
+    ctb: 'Chitubox',
+    cbddlp: 'Chitubox',
+    photon: 'Chitubox',
+    'encrypted.ctb': 'CTBEncrypted',
+  };
+  return AMBIGUOUS[format.toLowerCase()] ?? format;
 }
 
 /**

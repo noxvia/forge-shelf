@@ -9,6 +9,14 @@ on:
 env:
   REGISTRY: ghcr.io
 
+# Two pushes in quick succession would otherwise run two ~2.5 GB builds in
+# parallel, and the loser's tags get overwritten by the winner anyway. Keep only
+# the newest per branch. Tag builds get their own group so a release is never
+# cancelled by a subsequent push to main.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # Full image: includes OrcaSlicer, PrusaSlicer and UVtools.

@@ -34,6 +34,8 @@ export async function toolStatus(): Promise<ToolStatus[]> {
     {
       name: 'PrusaSlicer',
       path: env.prusaBin,
+      // Debian's package rather than an upstream AppImage — Prusa stopped
+      // shipping those for Linux.
       purpose: 'Slices meshes to .sl1 in SLA mode for resin printers',
     },
     {

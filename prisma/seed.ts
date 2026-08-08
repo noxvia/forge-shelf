@@ -1,12 +1,12 @@
-/**
+﻿/**
  * Idempotent seed. Runs on every container start; only fills in what's missing.
  *
  * The slicer profiles here are deliberately conservative starting points. The
  * SLA profiles are complete and self-contained (PrusaSlicer has no vendor
  * presets for Elegoo/Anycubic hardware, so every relevant value is spelled
  * out). The FDM profile inherits from OrcaSlicer's bundled Bambu system preset,
- * which is the only sane way to get Bambu machine limits right — check
- * Settings → Profiles in the UI and paste an exported Orca profile if you want
+ * which is the only sane way to get Bambu machine limits right â€” check
+ * Settings â†’ Profiles in the UI and paste an exported Orca profile if you want
  * something tuned.
  */
 import { PrismaClient, Technology, PrinterKind } from '@prisma/client';
@@ -14,10 +14,9 @@ import { PrismaClient, Technology, PrinterKind } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const MARS4_ULTRA_INI = `
-# PrusaSlicer SLA config — Elegoo Mars 4 Ultra (9K mono, 7 inch)
+# PrusaSlicer SLA config â€” Elegoo Mars 4 Ultra (9K mono, 7 inch)
 printer_technology = SLA
 printer_model = MARS4U
-sla_archive_format = SL1
 
 display_width = 153.36
 display_height = 77.76
@@ -58,10 +57,9 @@ hollowing_enable = 0
 `.trim();
 
 const SATURN4_ULTRA_INI = `
-# PrusaSlicer SLA config — Elegoo Saturn 4 Ultra (12K mono, 10 inch)
+# PrusaSlicer SLA config â€” Elegoo Saturn 4 Ultra (12K mono, 10 inch)
 printer_technology = SLA
 printer_model = SAT4U
-sla_archive_format = SL1
 
 display_width = 218.88
 display_height = 122.88
@@ -147,7 +145,7 @@ const ORCA_FILAMENT_PLA = JSON.stringify(
 
 const profiles = [
   {
-    name: 'Bambu X1C — 0.20mm Standard PLA',
+    name: 'Bambu X1C â€” 0.20mm Standard PLA',
     technology: Technology.FDM,
     printerKind: PrinterKind.FDM_BAMBU,
     description:
@@ -160,11 +158,11 @@ const profiles = [
     isDefault: true,
   },
   {
-    name: 'Elegoo Mars 4 Ultra — 50µm',
+    name: 'Elegoo Mars 4 Ultra â€” 50Âµm',
     technology: Technology.SLA,
     printerKind: PrinterKind.RESIN_SDCP,
     description:
-      'PrusaSlicer SLA at 50µm with auto supports and a pad, converted to .ctb by UVtools.',
+      'PrusaSlicer SLA at 50Âµm with auto supports and a pad, converted to .ctb by UVtools.',
     machineConfig: MARS4_ULTRA_INI,
     processConfig: null,
     materialConfig: null,
@@ -173,10 +171,10 @@ const profiles = [
     isDefault: true,
   },
   {
-    name: 'Elegoo Saturn 4 Ultra — 50µm',
+    name: 'Elegoo Saturn 4 Ultra â€” 50Âµm',
     technology: Technology.SLA,
     printerKind: PrinterKind.RESIN_SDCP,
-    description: 'PrusaSlicer SLA at 50µm for the 12K 10" panel, converted to .ctb by UVtools.',
+    description: 'PrusaSlicer SLA at 50Âµm for the 12K 10" panel, converted to .ctb by UVtools.',
     machineConfig: SATURN4_ULTRA_INI,
     processConfig: null,
     materialConfig: null,

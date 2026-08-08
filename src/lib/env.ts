@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Environment access in one place. Read lazily so the Next build doesn't need a
  * populated environment, and so the worker and web process agree on defaults.
  */
@@ -35,10 +35,10 @@ export const env = {
     return str('ORCA_BIN', '/opt/orca/AppRun');
   },
   get prusaBin() {
-    return str('PRUSA_BIN', '/opt/prusaslicer/AppRun');
+    return str('PRUSA_BIN', '/usr/bin/prusa-slicer');
   },
   get uvtoolsBin() {
-    return str('UVTOOLS_BIN', '/opt/uvtools/UVtoolsCmd');
+    return str('UVTOOLS_BIN', '/opt/uvtools/usr/bin/UVtoolsCmd');
   },
   get sliceTimeoutMs() {
     return int('SLICE_TIMEOUT_SECONDS', 900) * 1000;

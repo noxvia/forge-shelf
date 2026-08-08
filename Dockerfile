@@ -27,19 +27,23 @@ RUN npm prune --omit=dev
 
 
 # ============================================================================
-# Stage 2 — slicer toolchain
+# Stage 2 — slicer toolchain (AppImage half)
 #
-# Everything here is optional. Build with --build-arg INSTALL_SLICERS=false for
-# a much smaller image that can catalogue and send pre-sliced files but cannot
-# slice. Release URLs change often; override the *_URL args to pin versions.
-# The app reports which binaries are actually present at /api/system/health.
+# Build with --build-arg INSTALL_SLICERS=false for a much smaller image that can
+# catalogue and send pre-sliced files but cannot slice.
+#
+# These fetches fail the build if a URL dies. An earlier version only warned,
+# which produced a 3 GB image that silently could not slice — strictly worse
+# than a red build. If a URL has moved, override the matching *_URL arg.
+#
+# PrusaSlicer is deliberately absent here: Prusa stopped publishing Linux
+# AppImages on GitHub, so it comes from Debian in the runtime stage instead.
 # ============================================================================
 FROM debian:bookworm-slim AS slicers
 
 ARG INSTALL_SLICERS=true
-ARG ORCA_URL=https://github.com/SoftFever/OrcaSlicer/releases/download/v2.2.0/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.2.0.AppImage
-ARG PRUSA_URL=https://github.com/prusa3d/PrusaSlicer/releases/download/version_2.8.1/PrusaSlicer-2.8.1+linux-x64-GTK3-202409181416.AppImage
-ARG UVTOOLS_URL=https://github.com/sn4k3/UVtools/releases/download/v4.4.3/UVtools_linux-x64_v4.4.3.AppImage
+ARG ORCA_URL=https://github.com/SoftFever/OrcaSlicer/releases/download/v2.4.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.4.2.AppImage
+ARG UVTOOLS_URL=https://github.com/sn4k3/UVtools/releases/download/v6.2.0/UVtools_linux-x64_v6.2.0.AppImage
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       curl ca-certificates file \
@@ -47,30 +51,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt
 
-# Each fetch is tolerant: a dead URL produces a loud warning instead of a
-# failed build, and the corresponding feature simply reports as unavailable.
 RUN set -eux; \
     fetch_appimage() { \
       name="$1"; url="$2"; \
       mkdir -p "/opt/$name"; \
-      echo "==> fetching $name"; \
-      if curl -fSL --retry 3 -o "/tmp/$name.AppImage" "$url"; then \
-        chmod +x "/tmp/$name.AppImage"; \
-        ( cd /tmp && "/tmp/$name.AppImage" --appimage-extract >/dev/null ) \
-          && cp -a /tmp/squashfs-root/. "/opt/$name/" \
-          && rm -rf /tmp/squashfs-root "/tmp/$name.AppImage" \
-          && echo "==> $name installed"; \
-      else \
-        echo "!! WARNING: could not download $name from $url — feature disabled"; \
-      fi; \
+      echo "==> fetching $name from $url"; \
+      curl -fSL --retry 3 -o "/tmp/$name.AppImage" "$url"; \
+      chmod +x "/tmp/$name.AppImage"; \
+      ( cd /tmp && "/tmp/$name.AppImage" --appimage-extract >/dev/null ); \
+      cp -a /tmp/squashfs-root/. "/opt/$name/"; \
+      rm -rf /tmp/squashfs-root "/tmp/$name.AppImage"; \
+      echo "==> $name installed"; \
     }; \
     if [ "$INSTALL_SLICERS" = "true" ]; then \
       fetch_appimage orca "$ORCA_URL"; \
-      fetch_appimage prusaslicer "$PRUSA_URL"; \
       fetch_appimage uvtools "$UVTOOLS_URL"; \
+      # Prove the extraction produced what the app expects, rather than
+      # discovering it is missing at the first slice.
+      test -x /opt/orca/AppRun; \
+      test -f /opt/uvtools/usr/bin/UVtoolsCmd; \
+      echo "==> AppImage slicers verified"; \
     else \
       echo "==> INSTALL_SLICERS=false, skipping slicer toolchain"; \
-      mkdir -p /opt/orca /opt/prusaslicer /opt/uvtools; \
+      mkdir -p /opt/orca /opt/uvtools; \
     fi
 
 
@@ -89,23 +92,68 @@ ENV NODE_ENV=production \
 # openssl: Prisma. The rest are shared libraries the slicer AppImages link
 # against; xvfb provides the dummy display OrcaSlicer still wants even when
 # slicing headlessly.
+# openssl: Prisma. prusa-slicer: Debian's package, which is how SLA slicing is
+# obtained now that upstream no longer ships a Linux AppImage — 2.5.0 is older
+# than current upstream but is packaged, patched and pulls its own dependencies.
+# The library list is for the OrcaSlicer AppImage, which bundles nothing; xvfb
+# provides the dummy display it still wants even when slicing headlessly.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       openssl ca-certificates tini \
     && if [ "$INSTALL_SLICERS" = "true" ]; then \
          apt-get install -y --no-install-recommends \
-           xvfb \
+           prusa-slicer \
+           xvfb xauth \
            libgtk-3-0 libglib2.0-0 libgdk-pixbuf-2.0-0 libpango-1.0-0 libcairo2 \
            libgl1 libglu1-mesa libegl1 libxrandr2 libxi6 libxcursor1 libxinerama1 \
            libxkbcommon0 libsm6 libice6 libdbus-1-3 libnss3 libatk1.0-0 \
            libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libasound2 \
-           libwebkit2gtk-4.0-37 libsoup2.4-1 libssl3 libicu72 \
+           libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0 libsoup2.4-1 \
+           libssl3 libicu72 \
            fontconfig fonts-dejavu-core ; \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=slicers /opt/orca /opt/orca
-COPY --from=slicers /opt/prusaslicer /opt/prusaslicer
 COPY --from=slicers /opt/uvtools /opt/uvtools
+
+# Gate the build on every slicer actually *running*, not merely existing.
+#
+# Checking for the file is not enough: an earlier build had all three files in
+# place while OrcaSlicer aborted on a missing WebKitGTK and xvfb-run aborted on a
+# missing xauth. Both only surfaced when a user tried to slice. Executing each
+# one here turns those into build failures.
+#
+# Probes match on expected *output*, not exit status: UVtoolsCmd --help exits 1
+# even when perfectly healthy, so an exit-code gate would fail good builds. A
+# binary that dies on a missing shared library prints an error instead of usage
+# text, so output matching still catches the real failure.
+RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
+      set -e; \
+      echo "==> verifying slicer toolchain"; \
+      chmod +x /opt/uvtools/usr/bin/UVtoolsCmd; \
+      \
+      probe() { \
+        name="$1"; pattern="$2"; shift 2; \
+        if "$@" 2>&1 | grep -qiE "$pattern"; then \
+          echo "    $name ok"; \
+        else \
+          echo "FATAL: $name did not start correctly. First lines of its output:"; \
+          "$@" 2>&1 | head -5 | sed 's/^/      /'; \
+          exit 1; \
+        fi; \
+      }; \
+      \
+      command -v prusa-slicer >/dev/null || { echo "FATAL: prusa-slicer not installed"; exit 1; }; \
+      probe "prusa-slicer" "usage|--export|prusaslicer" prusa-slicer --help; \
+      \
+      xvfb-run -a true || { echo "FATAL: xvfb-run is broken — is xauth installed?"; exit 1; }; \
+      echo "    xvfb-run     ok"; \
+      \
+      probe "orcaslicer " "usage|--slice|orca" xvfb-run -a /opt/orca/AppRun --help; \
+      probe "uvtools    " "convert|usage|command" /opt/uvtools/usr/bin/UVtoolsCmd --help; \
+      \
+      echo "==> slicer toolchain verified"; \
+    fi
 
 WORKDIR /app
 

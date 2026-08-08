@@ -1,14 +1,14 @@
-# Pull-only deployment. No build step, no source checkout needed beyond this
+﻿# Pull-only deployment. No build step, no source checkout needed beyond this
 # file and a .env.
 #
 #   docker compose -f docker-compose.ghcr.yml pull
 #   docker compose -f docker-compose.ghcr.yml up -d
 #
 # Set IMAGE in .env to pick a tag:
-#   ghcr.io/<you>/<repo>:latest   full — includes the slicer toolchain (amd64)
+#   ghcr.io/<you>/<repo>:latest   full â€” includes the slicer toolchain (amd64)
 #   ghcr.io/<you>/<repo>:slim     no slicers, much smaller, amd64 + arm64
 #
-# This is a complete stack, not an override — don't combine it with
+# This is a complete stack, not an override â€” don't combine it with
 # docker-compose.yml.
 
 services:
@@ -40,8 +40,8 @@ services:
       STORAGE_DIR: /data
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
       ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
-      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
       SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
     ports:
       - '${APP_PORT:-8770}:3000'
@@ -62,8 +62,8 @@ services:
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       STORAGE_DIR: /data
       ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/opt/prusaslicer/AppRun}
-      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/UVtoolsCmd}
+      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
+      UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
       SLICE_TIMEOUT_SECONDS: ${SLICE_TIMEOUT_SECONDS:-900}
       WORKER_POLL_MS: ${WORKER_POLL_MS:-3000}
       PRINTER_POLL_MS: ${PRINTER_POLL_MS:-10000}
