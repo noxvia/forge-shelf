@@ -84,6 +84,24 @@ hosts want `slim`.
 > instead, run `docker login ghcr.io` on the host with a personal access token
 > that has `read:packages`.
 
+### Option A2 — one file, no checkout
+
+If you'd rather not clone anything on the server:
+
+```bash
+curl -O https://raw.githubusercontent.com/noxvia/forge-shelf/main/docker-compose.standalone.yml
+```
+
+Edit the three `CHANGEME` values, then:
+
+```bash
+docker compose -f docker-compose.standalone.yml up -d
+```
+
+Credentials live in that file instead of a `.env`, so keep it `chmod 600`. Data
+goes to named Docker volumes rather than a bind mount — the file header has the
+backup command.
+
 ### Option B — build from source on the host
 
 ```bash

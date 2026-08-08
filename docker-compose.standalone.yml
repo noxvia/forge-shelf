@@ -1,0 +1,85 @@
+# Forge Shelf — standalone deployment.
+#
+# One file, no repo checkout, no .env. Download it, edit the three marked
+# values, run it:
+#
+#   curl -O https://raw.githubusercontent.com/noxvia/forge-shelf/main/docker-compose.standalone.yml
+#   nano docker-compose.standalone.yml          # set the three CHANGEME values
+#   docker compose -f docker-compose.standalone.yml up -d
+#
+# Then open http://<host>:8770
+#
+# Trade-off vs docker-compose.ghcr.yml: credentials live in this file rather
+# than a .env, so keep it chmod 600 and out of any repo. Everything else is
+# identical.
+#
+# Data lives in named Docker volumes, so nothing is written next to this file.
+# Back up the library with:
+#   docker run --rm -v forgeshelf_storage:/data -v "$PWD:/out" alpine \
+#     tar czf /out/forge-shelf-backup.tar.gz -C /data .
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: forge
+      # ---- CHANGEME 1 of 3 -------------------------------------------------
+      POSTGRES_PASSWORD: CHANGEME-database-password
+      POSTGRES_DB: forgeshelf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U forge -d forgeshelf']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web:
+    # :latest includes the slicer toolchain (amd64 only).
+    # :slim  drops it — smaller, and the only option on arm64 (Raspberry Pi,
+    #        Apple Silicon), since all three slicers are x86_64-only AppImages.
+    image: ghcr.io/noxvia/forge-shelf:latest
+    restart: unless-stopped
+    command: ['web']
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # ---- CHANGEME 2 of 3: must match POSTGRES_PASSWORD above -------------
+      DATABASE_URL: postgresql://forge:CHANGEME-database-password@db:5432/forgeshelf?schema=public
+      # ---- CHANGEME 3 of 3: generate with `openssl rand -hex 32` -----------
+      # Encrypts printer LAN access codes at rest. Changing it later makes
+      # saved access codes unreadable and you will have to re-enter them.
+      APP_SECRET: CHANGEME-run-openssl-rand-hex-32
+      STORAGE_DIR: /data
+      MAX_UPLOAD_MB: 2048
+    ports:
+      # Change the left side to publish on a different host port.
+      - '8770:3000'
+    volumes:
+      - storage:/data
+
+  worker:
+    image: ghcr.io/noxvia/forge-shelf:latest
+    restart: unless-stopped
+    command: ['worker']
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_started
+    environment:
+      # Keep these two identical to the web service above.
+      DATABASE_URL: postgresql://forge:CHANGEME-database-password@db:5432/forgeshelf?schema=public
+      APP_SECRET: CHANGEME-run-openssl-rand-hex-32
+      STORAGE_DIR: /data
+      SLICE_TIMEOUT_SECONDS: 900
+      WORKER_POLL_MS: 3000
+      PRINTER_POLL_MS: 10000
+    volumes:
+      - storage:/data
+
+volumes:
+  pgdata:
+  storage:
