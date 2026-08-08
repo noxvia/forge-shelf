@@ -166,9 +166,16 @@ Two seeded starting points ship in the box: a Bambu X1C filament profile and 50 
 resin profiles for the Mars 4 Ultra and Saturn 4 Ultra. Treat them as starting
 points, not tuned settings.
 
-**Filament profiles** are OrcaSlicer JSON, split into machine / process / filament.
-The reliable way to build one: set the print up in OrcaSlicer, export those three
-presets, and paste them into a profile.
+**Filament profiles** name OrcaSlicer presets — `Bambu Lab X1 Carbon 0.4 nozzle`,
+`0.20mm Standard @BBL X1C`, `Bambu PLA Basic @BBL X1C` — exactly as they appear in
+OrcaSlicer. The adapter hands Orca its own bundled vendor files, whose inherit
+chains resolve correctly.
+
+A stub that merely `inherits` a preset by name does *not* work: Orca loads it and
+then rejects the combination with "The selected printer is not compatible with
+the process preset", because compatibility is matched on printer identity the
+stub doesn't carry. To customise, export a complete preset from the OrcaSlicer
+GUI and paste that JSON in — the adapter accepts a preset name or full JSON.
 
 **Resin profiles** are PrusaSlicer INI in SLA mode. Display resolution, panel
 dimensions and exposure times all live in the machine config — PrusaSlicer has no
@@ -250,10 +257,15 @@ verifies each one is executable before the image is tagged. If a build goes red
 on a download step, override the matching `*_URL` build arg.
 
 **PrusaSlicer comes from Debian, not upstream.** Prusa no longer publishes Linux
-AppImages on GitHub, so the SLA path uses Debian's `prusa-slicer` package —
-currently 2.5.0, older than upstream. It slices SLA fine, but it predates the
-`sla_archive_format` option, which is why the seeded resin profiles don't set it
-(SL1 is the default output, and UVtools converts from there regardless).
+AppImages on GitHub, so the SLA path uses Debian's `prusa-slicer` package
+(2.9.2 on trixie). The seeded resin profiles deliberately omit
+`sla_archive_format`: SL1 is the default output and UVtools converts from there
+regardless.
+
+**The image is built on Debian trixie, not bookworm.** OrcaSlicer 2.4.2 is
+compiled against Ubuntu 24.04 and needs glibc 2.38+; bookworm's 2.36 makes the
+binary refuse to start. Trixie's 2.41 runs it and brings a much newer
+PrusaSlicer along with it.
 
 **There is no authentication.** Anyone who can reach the port has full control of
 your library and your printers. Put it behind a reverse proxy with auth, or keep it

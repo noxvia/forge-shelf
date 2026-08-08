@@ -1,5 +1,6 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { unzipSync, strFromU8 } from 'fflate';
 import { env } from '../env';
 import { run, exists, listFiles } from './run';
 import {
@@ -40,24 +41,18 @@ export const orcaAdapter: SlicerAdapter = {
     await fsp.mkdir(outDir, { recursive: true });
     await fsp.mkdir(dataDir, { recursive: true });
 
-    // Write each config section Orca should load.
     const settingsFiles: string[] = [];
     for (const [name, content] of [
-      ['machine.json', profile.machineConfig],
-      ['process.json', profile.processConfig],
+      ['machine', profile.machineConfig],
+      ['process', profile.processConfig],
     ] as const) {
-      if (!content?.trim()) continue;
-      const p = path.join(workDir, name);
-      await fsp.writeFile(p, content, 'utf8');
-      settingsFiles.push(p);
+      const resolved = await resolveSetting(name, content, workDir);
+      if (resolved) settingsFiles.push(resolved);
     }
 
     const filamentFiles: string[] = [];
-    if (profile.materialConfig?.trim()) {
-      const p = path.join(workDir, 'filament.json');
-      await fsp.writeFile(p, profile.materialConfig, 'utf8');
-      filamentFiles.push(p);
-    }
+    const filament = await resolveSetting('filament', profile.materialConfig, workDir);
+    if (filament) filamentFiles.push(filament);
 
     const args: string[] = ['--datadir', dataDir];
     if (settingsFiles.length) args.push('--load-settings', settingsFiles.join(';'));
@@ -67,7 +62,10 @@ export const orcaAdapter: SlicerAdapter = {
       '--orient', '1',       // drop the model flat on the plate
       '--arrange', '1',      // and centre it
       '--slice', '0',        // 0 = every plate
-      '--export-3mf', path.join(outDir, 'print.gcode.3mf'),
+      // Must stay a bare filename: Orca joins --outputdir with this value, so an
+      // absolute path here produces "/out//out/print.gcode.3mf" and the export
+      // fails with the unhelpful "Failed exporting 3mf files."
+      '--export-3mf', 'print.gcode.3mf',
       '--outputdir', outDir,
       ...extraArgs(profile.extraArgs),
       inputPath,
@@ -103,7 +101,9 @@ export const orcaAdapter: SlicerAdapter = {
       outputPath: produced,
       outputName: path.basename(produced),
       log: result.combined,
-      meta: scrapeMeta(result.combined),
+      // Prefer the numbers inside the archive; fall back to the log for plain
+      // .gcode output, which has no archive to read.
+      meta: { ...scrapeMeta(result.combined), ...(await read3mfMeta(produced)) },
     };
   },
 };
@@ -124,6 +124,138 @@ function rank(f: string): number {
 
 function extraArgs(raw: string | null): string[] {
   return raw?.trim() ? raw.trim().split(/\s+/) : [];
+}
+
+/** Where the AppImage keeps its bundled vendor presets. */
+function presetRoot(): string {
+  return path.join(path.dirname(env.orcaBin), 'resources', 'profiles');
+}
+
+/**
+ * A profile section is either a preset name or a complete JSON config.
+ *
+ * Preset *names* are the useful case and the one that actually works: Orca's
+ * own vendor files resolve their `inherits` chain against the bundled base
+ * profiles. A hand-written stub that merely inherits a preset by name does not
+ * — Orca loads it but then rejects the combination with "The selected printer
+ * is not compatible with the process preset", because the compatibility
+ * conditions match on printer identity that the stub doesn't carry.
+ *
+ * Inline JSON is still honoured for configs exported whole from the OrcaSlicer
+ * GUI, which are flattened and self-contained.
+ */
+async function resolveSetting(
+  kind: 'machine' | 'process' | 'filament',
+  value: string | null,
+  workDir: string,
+): Promise<string | null> {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('{')) {
+    const p = path.join(workDir, `${kind}.json`);
+    await fsp.writeFile(p, trimmed, 'utf8');
+    return p;
+  }
+
+  const found = await findPreset(kind, trimmed);
+  if (!found) {
+    throw new SliceFailedError(
+      `OrcaSlicer has no ${kind} preset named "${trimmed}". Use the exact name as it ` +
+        `appears in OrcaSlicer (for example "Bambu Lab X1 Carbon 0.4 nozzle"), or paste ` +
+        `a full preset exported from the OrcaSlicer GUI instead.`,
+      '',
+    );
+  }
+  return found;
+}
+
+/** Searches every bundled vendor directory for <kind>/<name>.json. */
+async function findPreset(kind: string, name: string): Promise<string | null> {
+  const root = presetRoot();
+  let vendors: string[];
+  try {
+    vendors = await fsp.readdir(root);
+  } catch {
+    return null;
+  }
+
+  const wanted = name.toLowerCase().replace(/\.json$/, '');
+  for (const vendor of vendors) {
+    const dir = path.join(root, vendor, kind);
+    let entries: string[];
+    try {
+      entries = await fsp.readdir(dir);
+    } catch {
+      continue; // vendor.json and other non-directories
+    }
+    const hit = entries.find((e) => e.toLowerCase() === `${wanted}.json`);
+    if (hit) return path.join(dir, hit);
+  }
+  return null;
+}
+
+/**
+ * Reads Metadata/slice_info.config out of a .gcode.3mf.
+ *
+ * Far more reliable than scraping stdout, which prints none of this. Only that
+ * one entry is decompressed — the sibling plate_N.gcode can be hundreds of
+ * megabytes on a real print and there is no reason to inflate it.
+ */
+async function read3mfMeta(filePath: string): Promise<Record<string, unknown>> {
+  if (!/\.3mf$/i.test(filePath)) return {};
+
+  try {
+    const buf = await fsp.readFile(filePath);
+    const files = unzipSync(new Uint8Array(buf), {
+      filter: (f) => /slice_info\.config$/i.test(f.name),
+    });
+    const key = Object.keys(files).find((k) => /slice_info\.config$/i.test(k));
+    if (!key) return {};
+
+    const xml = strFromU8(files[key]);
+    const meta: Record<string, unknown> = {};
+
+    const value = (k: string) =>
+      new RegExp(`<metadata key="${k}" value="([^"]*)"`, 'i').exec(xml)?.[1];
+
+    // "prediction" is the estimated print time in seconds. Note that
+    // first_layer_time in the same file is routinely garbage (values around
+    // 1e25), so it is deliberately not read.
+    const prediction = Number(value('prediction'));
+    if (Number.isFinite(prediction) && prediction > 0) meta.estimatedSeconds = prediction;
+
+    const weight = Number(value('weight'));
+    if (Number.isFinite(weight) && weight > 0) meta.filamentGrams = weight;
+
+    const filament = /<filament\b[^>]*>/i.exec(xml)?.[0];
+    if (filament) {
+      const attr = (a: string) => new RegExp(`${a}="([^"]*)"`, 'i').exec(filament)?.[1];
+
+      const grams = Number(attr('used_g'));
+      if (Number.isFinite(grams) && grams > 0) meta.filamentGrams = grams;
+
+      const metres = Number(attr('used_m'));
+      if (Number.isFinite(metres) && metres > 0) meta.filamentMetres = metres;
+
+      const type = attr('type');
+      if (type) meta.filamentType = type;
+    }
+
+    // layer_ranges is an inclusive "first last" pair.
+    const range = /layer_ranges="(\d+)\s+(\d+)"/i.exec(xml);
+    if (range) meta.layerCount = Number(range[2]) - Number(range[1]) + 1;
+
+    const nozzle = value('nozzle_diameters');
+    if (nozzle) meta.nozzleDiameter = nozzle;
+
+    if (value('support_used') === 'true') meta.supportsUsed = true;
+
+    return meta;
+  } catch (err) {
+    console.warn('[orca] could not read slice_info.config:', err);
+    return {};
+  }
 }
 
 /** Pull the numbers Orca prints so the UI can show time and filament use. */

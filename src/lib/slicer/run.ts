@@ -37,8 +37,10 @@ export async function run(
       cwd: opts.cwd,
       env: {
         ...process.env,
-        // AppImages want a writable home for their config.
+        // AppImages want a writable home for their config, and GTK complains
+        // loudly about an unset XDG_RUNTIME_DIR.
         HOME: opts.cwd ?? process.env.HOME ?? '/tmp',
+        XDG_RUNTIME_DIR: opts.cwd ?? '/tmp',
         ...opts.env,
       },
       stdio: ['ignore', 'pipe', 'pipe'],

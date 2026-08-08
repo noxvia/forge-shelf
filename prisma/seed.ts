@@ -98,50 +98,21 @@ hollowing_enable = 0
 `.trim();
 
 /**
- * OrcaSlicer settings are JSON and split across machine / process / filament.
- * `inherits` pulls in the bundled vendor preset so we only override what we
- * care about.
+ * FDM profiles name OrcaSlicer presets rather than embedding JSON.
+ *
+ * A hand-written stub that just `inherits` a vendor preset does not work: Orca
+ * loads it and then refuses the combination with "The selected printer is not
+ * compatible with the process preset", because compatibility is matched on
+ * printer identity the stub doesn't carry. Naming the preset makes the adapter
+ * hand Orca its own vendor file, whose inherit chain resolves properly.
+ *
+ * Names must match OrcaSlicer exactly. To customise, export a full preset from
+ * the OrcaSlicer GUI and paste that JSON in instead — the adapter accepts
+ * either form.
  */
-const ORCA_MACHINE_X1C = JSON.stringify(
-  {
-    type: 'machine',
-    name: 'ForgeShelf X1C 0.4',
-    from: 'User',
-    inherits: 'Bambu Lab X1 Carbon 0.4 nozzle',
-    printer_settings_id: 'ForgeShelf X1C 0.4',
-    printer_variant: '0.4',
-  },
-  null,
-  2,
-);
-
-const ORCA_PROCESS_020 = JSON.stringify(
-  {
-    type: 'process',
-    name: 'ForgeShelf 0.20mm Standard',
-    from: 'User',
-    inherits: '0.20mm Standard @BBL X1C',
-    print_settings_id: 'ForgeShelf 0.20mm Standard',
-    layer_height: '0.2',
-    sparse_infill_density: '15%',
-    support_type: 'tree(auto)',
-    enable_support: '0',
-  },
-  null,
-  2,
-);
-
-const ORCA_FILAMENT_PLA = JSON.stringify(
-  {
-    type: 'filament',
-    name: 'ForgeShelf Generic PLA',
-    from: 'User',
-    inherits: 'Bambu PLA Basic @BBL X1C',
-    filament_settings_id: 'ForgeShelf Generic PLA',
-  },
-  null,
-  2,
-);
+const ORCA_MACHINE_X1C = 'Bambu Lab X1 Carbon 0.4 nozzle';
+const ORCA_PROCESS_020 = '0.20mm Standard @BBL X1C';
+const ORCA_FILAMENT_PLA = 'Bambu PLA Basic @BBL X1C';
 
 const profiles = [
   {
@@ -149,7 +120,8 @@ const profiles = [
     technology: Technology.FDM,
     printerKind: PrinterKind.FDM_BAMBU,
     description:
-      'OrcaSlicer, inherits the bundled Bambu X1C 0.4 nozzle preset. Supports off, 15% infill.',
+      "OrcaSlicer using Bambu's bundled X1C 0.4 nozzle presets at 0.20mm. Edit or " +
+      'replace with a preset exported from the OrcaSlicer GUI to customise.',
     machineConfig: ORCA_MACHINE_X1C,
     processConfig: ORCA_PROCESS_020,
     materialConfig: ORCA_FILAMENT_PLA,

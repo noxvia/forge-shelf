@@ -3,7 +3,7 @@
 # ============================================================================
 # Stage 1 — build the Next.js app and generate the Prisma client
 # ============================================================================
-FROM node:20-bookworm-slim AS build
+FROM node:22-trixie-slim AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       openssl ca-certificates python3 make g++ \
@@ -80,7 +80,12 @@ RUN set -eux; \
 # ============================================================================
 # Stage 3 — runtime
 # ============================================================================
-FROM node:20-bookworm-slim AS runtime
+#
+# Trixie, not bookworm, and not by preference: OrcaSlicer 2.4.2 is built against
+# Ubuntu 24.04 and needs glibc 2.38+/GLIBCXX_3.4.32. Bookworm ships glibc 2.36,
+# so the binary refuses to start there. Trixie's 2.41 runs it, and brings
+# prusa-slicer 2.9.2 (vs 2.5.0) and native WebKitGTK 4.1 along with it.
+FROM node:22-trixie-slim AS runtime
 
 ARG INSTALL_SLICERS=true
 
@@ -103,12 +108,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
          apt-get install -y --no-install-recommends \
            prusa-slicer \
            xvfb xauth \
-           libgtk-3-0 libglib2.0-0 libgdk-pixbuf-2.0-0 libpango-1.0-0 libcairo2 \
-           libgl1 libglu1-mesa libegl1 libxrandr2 libxi6 libxcursor1 libxinerama1 \
-           libxkbcommon0 libsm6 libice6 libdbus-1-3 libnss3 libatk1.0-0 \
-           libatk-bridge2.0-0 libcups2 libdrm2 libgbm1 libasound2 \
+           libgtk-3-0t64 libglib2.0-0t64 libgdk-pixbuf-2.0-0 libpango-1.0-0 \
+           libcairo2 libgl1 libglu1-mesa libegl1 libxrandr2 libxi6 libxcursor1 \
+           libxinerama1 libxkbcommon0 libsm6 libice6 libdbus-1-3 libnss3 \
+           libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libgbm1 \
+           libasound2t64 \
            libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0 libsoup2.4-1 \
-           libssl3 libicu72 \
            fontconfig fonts-dejavu-core ; \
        fi \
     && rm -rf /var/lib/apt/lists/*
@@ -149,8 +154,18 @@ RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
       xvfb-run -a true || { echo "FATAL: xvfb-run is broken — is xauth installed?"; exit 1; }; \
       echo "    xvfb-run     ok"; \
       \
-      probe "orcaslicer " "usage|--slice|orca" xvfb-run -a /opt/orca/AppRun --help; \
+      # The Orca pattern must not contain "orca": its failure message includes
+      # the path /opt/orca/bin/orca-slicer, so a loose pattern matched the very
+      # error it was meant to catch and passed a build where Orca could not run
+      # at all. Match only text that appears in genuine usage output.
+      probe "orcaslicer " "^Usage: orca-slicer|--slice option" xvfb-run -a /opt/orca/AppRun --help; \
       probe "uvtools    " "convert|usage|command" /opt/uvtools/usr/bin/UVtoolsCmd --help; \
+      \
+      # Prove the vendor presets Orca inherits from are actually in the image;
+      # without them every Bambu profile fails at slice time, not build time.
+      test -d /opt/orca/resources/profiles/BBL/machine \
+        || { echo "FATAL: OrcaSlicer vendor profiles missing"; exit 1; }; \
+      echo "    presets      ok ($(ls /opt/orca/resources/profiles | wc -l) vendors)"; \
       \
       echo "==> slicer toolchain verified"; \
     fi
