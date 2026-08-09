@@ -211,10 +211,13 @@ detection as the verdict:
   offset applies to the hole's own surface, so on a small model it pinches the
   cavity into disconnected pockets. At 2mm walls, trap count after slicing:
 
-  | Model | No holes | 2 × 3mm | 1 × 4mm | 2 × 4mm |
-  |---|---|---|---|---|
-  | 30mm cube | 1 | **0** | — | — |
-  | 10mm cube | 1 | 3 | 4 | 3 |
+  | Model | No holes | 2 × 3mm | 1 × 4mm | 2 × 4mm | 1 × 5mm |
+  |---|---|---|---|---|---|
+  | 30mm cube | 1 | **0** | — | **0** | **0** |
+  | 10mm cube | 1 | 3 | 4 | 3 | — |
+
+  At 30mm every hole configuration tested cleared the trap, so the result isn't
+  specific to one size or count. At 10mm none did.
 
 So drilling is a strong improvement, not a guarantee — which is why **every resin
 slice is checked for trapped resin afterwards**, and a file with a trap or

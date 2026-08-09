@@ -21,8 +21,11 @@ import { run, exists } from './run';
  *    it pinches the cavity into disconnected pockets instead of draining it.
  *    Measured, 2mm walls, trap count after slicing:
  *
- *      30mm cube  no holes -> 1    2x3mm -> 0
+ *      30mm cube  no holes -> 1    2x3mm -> 0    2x4mm -> 0    1x5mm -> 0
  *      10mm cube  no holes -> 1    2x3mm -> 3    1x4mm -> 4    2x4mm -> 3
+ *
+ *    Every configuration cleared it at 30mm and none did at 10mm, so the
+ *    determining factor is cavity size relative to wall, not hole geometry.
  *
  *    So this is not a guarantee, which is precisely why every resin slice is
  *    checked for trapped resin afterwards regardless of what was drilled.
