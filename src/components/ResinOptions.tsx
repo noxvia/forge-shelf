@@ -9,6 +9,9 @@ export interface ResinOptionsValue {
   rotateY?: number;
   hollow?: boolean;
   hollowThicknessMm?: number;
+  /** Flattened for the form; nested into `drainHoles` when submitted. */
+  drainHoleCount?: number;
+  drainHoleDiameterMm?: number;
   supports?: boolean;
   supportTreeType?: 'default' | 'branching';
   supportElevationMm?: number;
@@ -139,7 +142,7 @@ export function ResinOptions({
           <Toggle label="Hollow" value={value.hollow} onChange={(v) => set('hollow', v)} />
           {value.hollow && (
             <>
-              <div className="pl-1">
+              <div className="grid grid-cols-2 gap-2 pl-1">
                 <NumField
                   label="Wall mm"
                   hint="2mm is a safe floor for most resins."
@@ -147,15 +150,43 @@ export function ResinOptions({
                   onChange={(v) => set('hollowThicknessMm', v)}
                   step={0.5}
                 />
+                <NumField
+                  label="Drain holes"
+                  hint="Cut through the underside so resin can escape. 2 is typical."
+                  value={value.drainHoleCount}
+                  onChange={(v) => set('drainHoleCount', v)}
+                  step={1}
+                />
+                {value.drainHoleCount ? (
+                  <NumField
+                    label="Hole Ø mm"
+                    hint="3–4mm drains reliably; smaller can bridge over."
+                    value={value.drainHoleDiameterMm}
+                    onChange={(v) => set('drainHoleDiameterMm', v)}
+                    step={0.5}
+                  />
+                ) : null}
               </div>
-              <p className="flex items-start gap-2 rounded bg-bad/10 px-2 py-1.5 text-xs text-bad">
-                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <span>
-                  No drain holes. PrusaSlicer can only place those in its GUI, so this will be
-                  a sealed shell full of uncured resin — it can suction to the FEP and burst.
-                  Add drain holes in a mesh editor first, or print solid.
-                </span>
-              </p>
+
+              {value.drainHoleCount ? (
+                <p className="flex items-start gap-2 rounded bg-good/10 px-2 py-1.5 text-xs text-good">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    {value.drainHoleCount} hole{value.drainHoleCount === 1 ? '' : 's'} will be
+                    cut through the underside before slicing, and hollowing is told not to
+                    close them again. On small models the cavity can still pinch shut around
+                    the holes, so the sliced file is checked for trapped resin either way.
+                  </span>
+                </p>
+              ) : (
+                <p className="flex items-start gap-2 rounded bg-bad/10 px-2 py-1.5 text-xs text-bad">
+                  <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    No drain holes — this will be a sealed shell holding uncured resin, which
+                    can suction against the FEP and burst. Set a hole count above, or print solid.
+                  </span>
+                </p>
+              )}
             </>
           )}
 

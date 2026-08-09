@@ -326,6 +326,20 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The form keeps drain-hole fields flat because they render as two plain
+ * inputs; the API wants them nested. Convert on the way out.
+ */
+function toApiOptions(o: ResinOptionsValue): Record<string, unknown> {
+  const { drainHoleCount, drainHoleDiameterMm, ...rest } = o;
+  return {
+    ...rest,
+    ...(drainHoleCount
+      ? { drainHoles: { count: drainHoleCount, diameterMm: drainHoleDiameterMm ?? 3 } }
+      : {}),
+  };
+}
+
 function FileStats({ file }: { file: ModelFile }) {
   const stats: [string, string][] = [];
   if (file.bboxX !== null) {
@@ -582,7 +596,7 @@ function SliceAndPrint({
                   profileId,
                   autoPrint || null,
                   selectedProfile?.technology === 'SLA' && Object.keys(resinOptions).length > 0
-                    ? resinOptions
+                    ? toApiOptions(resinOptions)
                     : undefined,
                 )
               }

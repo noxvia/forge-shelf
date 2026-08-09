@@ -26,6 +26,18 @@ export const sliceOptionsSchema = z.object({
   /** 0–1; higher is a closer fit to the surface and slower. */
   hollowQuality: z.number().min(0).max(1).optional(),
 
+  /**
+   * Drain holes cut into the mesh before slicing, since PrusaSlicer can only
+   * place them from its GUI. Without these a hollowed model traps resin.
+   */
+  drainHoles: z
+    .object({
+      count: z.number().int().min(1).max(12),
+      /** 3–4mm is the usual range; smaller drains too slowly to matter. */
+      diameterMm: z.number().min(1).max(15).optional(),
+    })
+    .optional(),
+
   // --- supports -----------------------------------------------------------
   supports: z.boolean().optional(),
   /** "default" is PrusaSlicer's pillar style; "branching" is tree-like. */
@@ -119,11 +131,23 @@ export function slaOptionWarnings(options: SliceOptions | null | undefined): str
   if (!options) return [];
   const warnings: string[] = [];
 
-  if (options.hollow) {
+  if (options.hollow && !options.drainHoles?.count) {
     warnings.push(
-      'Hollowing is on. PrusaSlicer has no command-line way to add drain holes, so the ' +
-        'model will be a sealed shell that traps uncured resin — it can form a suction ' +
-        'cup against the FEP and burst. Add drain holes in a mesh editor first, or print solid.',
+      'Hollowing is on with no drain holes, so the model will be a sealed shell holding ' +
+        'uncured resin — it can form a suction cup against the FEP and burst. Set drain ' +
+        'holes below, or print solid. The sliced file is checked for trapped resin either way.',
+    );
+  }
+  if (options.drainHoles?.count && !options.hollow) {
+    warnings.push(
+      'Drain holes are set but hollowing is off, so the holes will just be holes through a ' +
+        'solid model. Turn hollowing on if you meant to save resin.',
+    );
+  }
+  if (options.drainHoles && (options.drainHoles.diameterMm ?? 3) < 2) {
+    warnings.push(
+      `A ${options.drainHoles.diameterMm}mm drain hole is small enough that resin drains ` +
+        `very slowly and can bridge over during printing. 3–4mm is the usual range.`,
     );
   }
   if (options.supports === false && options.pad === false) {

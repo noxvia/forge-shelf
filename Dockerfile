@@ -110,6 +110,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && if [ "$INSTALL_SLICERS" = "true" ]; then \
          apt-get install -y --no-install-recommends \
            prusa-slicer \
+           python3 python3-pip \
            xvfb xauth \
            libgtk-3-0t64 libglib2.0-0t64 libgdk-pixbuf-2.0-0 libpango-1.0-0 \
            libcairo2 libgl1 libglu1-mesa libegl1 libxrandr2 libxi6 libxcursor1 \
@@ -121,8 +122,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
+# Mesh pre-processing for drain holes:
+#   manifold3d - the boolean engine trimesh subtracts with
+#   rtree      - spatial index trimesh's ray casting needs; without it hole
+#                placement dies with "No module named 'rtree'" at slice time
+RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
+      pip install --break-system-packages --no-cache-dir \
+        trimesh==4.5.3 manifold3d==3.0.1 rtree==1.3.0 numpy ; \
+    fi
+
 COPY --from=slicers /opt/orca /opt/orca
 COPY --from=slicers /opt/uvtools /opt/uvtools
+
+# Copied ahead of the rest of the source so the gate below can run the real
+# drilling script. The full src copy later supersedes this.
+COPY src/tools /app/src/tools
 
 # Gate the build on every slicer actually *running*, not merely existing.
 #
@@ -163,6 +177,23 @@ RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
       # at all. Match only text that appears in genuine usage output.
       probe "orcaslicer " "^Usage: orca-slicer|--slice option" xvfb-run -a /opt/orca/AppRun --help; \
       probe "uvtools    " "convert|usage|command" /opt/uvtools/usr/bin/UVtoolsCmd --help; \
+      \
+      # Exercise the drill script itself rather than a proxy for it. An earlier
+      # gate only tested boolean subtraction and passed an image whose ray
+      # casting was broken, so hole placement failed at slice time instead.
+      python3 -c "import trimesh; \
+        m=trimesh.creation.box(extents=[20,20,20]); \
+        m.export('/tmp/gate.stl')" \
+        && python3 /app/src/tools/drill_drain_holes.py /tmp/gate.stl /tmp/gate-drilled.stl 2 3 \
+             | grep -q '\"ok\": true' \
+        && python3 -c "import trimesh,sys; \
+             a=trimesh.load('/tmp/gate.stl'); b=trimesh.load('/tmp/gate-drilled.stl'); \
+             sys.exit(0 if (b.volume < a.volume and b.is_watertight) else 1)" \
+        || { echo 'FATAL: drain-hole drilling does not work'; \
+             python3 /app/src/tools/drill_drain_holes.py /tmp/gate.stl /tmp/x.stl 2 3 2>&1 | head -5; \
+             exit 1; }; \
+      rm -f /tmp/gate.stl /tmp/gate-drilled.stl; \
+      echo "    meshtools    ok"; \
       \
       # Prove the vendor presets Orca inherits from are actually in the image;
       # without them every Bambu profile fails at slice time, not build time.

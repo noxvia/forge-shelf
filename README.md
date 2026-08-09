@@ -186,7 +186,8 @@ GUI and paste that JSON in — the adapter accepts a preset name or full JSON.
 | Hollowing with wall thickness | ✅ per model |
 | Orientation (tilt X/Y), scale | ✅ per model |
 | Exposure and layer height | ✅ per model |
-| **Drain holes** | ❌ **PrusaSlicer can only place these in its GUI** |
+| **Drain holes** | ⚠️ cut into the mesh before slicing — see below |
+| **Risk detection** (traps, islands, suction cups) | ✅ every resin slice, blocks printing |
 | Manual support placement / enforcers | ❌ GUI-only |
 | Auto-orientation | ❌ doesn't exist for SLA |
 
@@ -194,10 +195,34 @@ Profiles set the baseline; the **Resin options** panel on a model overrides any 
 it for that one slice, so hollowing a single miniature doesn't mean cloning a
 profile. Untouched controls inherit from the profile rather than forcing a default.
 
-> **Hollowing without drain holes traps uncured resin.** A sealed shell can
-> suction against the FEP and burst. The app warns when you enable it. Add drain
-> holes in a mesh editor (Blender, Lychee, ChiTuBox) before uploading, or print
-> solid.
+#### Drain holes
+
+PrusaSlicer can only place drain holes through its GUI, so they are cut into the
+mesh beforehand — vertical cylinders subtracted through the underside, placed by
+ray-testing the footprint so they land on real material.
+
+Two things were measured rather than assumed, both using UVtools resin-trap
+detection as the verdict:
+
+- **Hollowing closes the holes again.** PrusaSlicer's default 2mm closing
+  distance seals a drilled opening during hollowing, so the resin stays trapped.
+  The app forces closing distance to 0 whenever it drills.
+- **It only works when the cavity is big relative to the wall.** The hollowing
+  offset applies to the hole's own surface, so on a small model it pinches the
+  cavity into disconnected pockets. At 2mm walls, trap count after slicing:
+
+  | Model | No holes | 2 × 3mm | 1 × 4mm | 2 × 4mm |
+  |---|---|---|---|---|
+  | 30mm cube | 1 | **0** | — | — |
+  | 10mm cube | 1 | 3 | 4 | 3 |
+
+So drilling is a strong improvement, not a guarantee — which is why **every resin
+slice is checked for trapped resin afterwards**, and a file with a trap or
+suction cup is refused by the job queue until you confirm it. Auto-print after
+slicing is cancelled outright.
+
+For full control, hollow and drill in a mesh editor (Blender, Lychee, ChiTuBox)
+and upload that mesh with hollowing off.
 
 **Resin profiles** are PrusaSlicer INI in SLA mode. Display resolution, panel
 dimensions and exposure times all live in the machine config — PrusaSlicer has no

@@ -4,6 +4,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { env } from '../env';
 import { run, exists, listFiles } from './run';
 import { slaOptionArgs } from './options';
+import { drillDrainHoles, DRAIN_HOLE_CLOSING_DISTANCE } from './drain';
 import {
   SliceFailedError,
   SlicerUnavailableError,
@@ -64,6 +65,41 @@ export const slaAdapter: SlicerAdapter = {
       req.onLog?.(line);
     };
 
+    // --- drain holes ---------------------------------------------------------
+    // Cut into the mesh before slicing, because PrusaSlicer can only place them
+    // from its GUI. Hollowing then has to be told not to close them again.
+    let meshPath = inputPath;
+    const drainMeta: Record<string, unknown> = {};
+    const holes = req.options?.drainHoles;
+
+    if (holes?.count) {
+      const drilledPath = path.join(workDir, 'drilled.stl');
+      collect(`[drain] cutting ${holes.count} x ${holes.diameterMm ?? 3}mm drain holes`);
+
+      const drilled = await drillDrainHoles(
+        inputPath,
+        drilledPath,
+        holes.count,
+        holes.diameterMm ?? 3,
+        { onLog: collect },
+      );
+
+      if (drilled.ok) {
+        meshPath = drilledPath;
+        drainMeta.drainHoles = {
+          count: drilled.holes,
+          diameterMm: drilled.diameterMm,
+          positions: drilled.positions,
+        };
+        collect(`[drain] drilled ${drilled.holes} holes, mesh still watertight=${drilled.watertight}`);
+      } else {
+        // Not fatal: a model that cannot be drilled should still slice, but the
+        // user must know they are getting a sealed shell.
+        collect(`[drain] FAILED: ${drilled.error}`);
+        drainMeta.drainHolesError = drilled.error;
+      }
+    }
+
     // Order matters: --load brings in the profile, then per-slice flags override
     // it, then the profile's own extraArgs get the last word.
     const sliceRun = await run(
@@ -72,9 +108,15 @@ export const slaAdapter: SlicerAdapter = {
         '--export-sla',
         '--load', iniPath,
         ...slaOptionArgs(req.options),
+        // Must come after the option args so it wins: PrusaSlicer's default 2mm
+        // closing distance seals drilled holes shut during hollowing, which
+        // leaves the resin trapped despite the holes being there.
+        ...(drainMeta.drainHoles
+          ? ['--hollowing-closing-distance', DRAIN_HOLE_CLOSING_DISTANCE]
+          : []),
         '--output', sl1Path,
         ...extraArgs(profile.extraArgs),
-        inputPath,
+        meshPath,
       ],
       { cwd: workDir, timeoutMs: req.timeoutMs, onLog: collect, useXvfb: true },
     );
@@ -99,7 +141,7 @@ export const slaAdapter: SlicerAdapter = {
       );
     }
 
-    const meta = await readSl1Meta(sl1);
+    const meta = { ...(await readSl1Meta(sl1)), ...drainMeta };
     const target = (profile.outputFormat || 'ctb').replace(/^\./, '').toLowerCase();
 
     if (target === 'sl1' || target === 'sl1s') {

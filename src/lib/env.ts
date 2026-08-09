@@ -51,6 +51,13 @@ export const env = {
   get issueCheckEnabled() {
     return (process.env.ISSUE_CHECK ?? 'true').toLowerCase() !== 'false';
   },
+  /** Interpreter used for mesh pre-processing (drain holes). */
+  get pythonBin() {
+    return str('PYTHON_BIN', 'python3');
+  },
+  get drillTimeoutMs() {
+    return int('DRILL_TIMEOUT_SECONDS', 300) * 1000;
+  },
 
   // Worker cadence
   get workerPollMs() {
