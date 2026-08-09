@@ -37,7 +37,12 @@ export const GET = handler(async (_req: Request, { params }: Ctx) => {
     },
   });
 
-  return ok({ ...model, sliceTasks: tasks });
+  // Resolve which uploaded image is the cover here, so the client never has to
+  // reason about storage paths.
+  const coverFileId =
+    model.files.find((f) => f.storagePath === model.thumbnailPath)?.id ?? null;
+
+  return ok({ ...model, sliceTasks: tasks, coverFileId });
 });
 
 const patchBody = z.object({

@@ -144,6 +144,8 @@ export interface ModelDetail extends ModelSummary {
   files: ModelFile[];
   jobs: PrintJob[];
   sliceTasks: SliceTask[];
+  /** Which uploaded image is the library cover, resolved server-side. */
+  coverFileId: string | null;
 }
 
 export interface Discovered {

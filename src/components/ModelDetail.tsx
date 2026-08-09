@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -30,6 +30,7 @@ import type {
 import { FILE_KIND_LABEL } from '@/lib/types';
 import { ResinOptions, type ResinOptionsValue } from './ResinOptions';
 import { PrintIssues, type IssueReport } from './PrintIssues';
+import { ImageGallery } from './ImageGallery';
 
 // The viewer pulls in three.js and touches WebGL; keep it off the server.
 const ModelViewer = dynamicImport(
@@ -125,7 +126,11 @@ export function ModelDetail({ modelId }: { modelId: string }) {
   const selectedFile = model.files.find((f) => f.id === selectedFileId) ?? null;
   const meshes = model.files.filter((f) => f.kind === 'MESH');
   const sliced = model.files.filter((f) => f.kind === 'SLICED');
-  const others = model.files.filter((f) => f.kind !== 'MESH' && f.kind !== 'SLICED');
+  const images = model.files.filter((f) => f.kind === 'IMAGE');
+  // Images get their own gallery, so keep them out of the plain file list.
+  const others = model.files.filter(
+    (f) => f.kind !== 'MESH' && f.kind !== 'SLICED' && f.kind !== 'IMAGE',
+  );
   const viewable = selectedFile && /\.(stl|3mf|obj)$/i.test(selectedFile.filename);
 
   return (
@@ -136,7 +141,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             {model.designer && <span>by {model.designer}</span>}
             <span>{model.files.length} files</span>
-            {model.printCount > 0 && <span>printed {model.printCount}×</span>}
+            {model.printCount > 0 && <span>printed {model.printCount}Ã—</span>}
             <span>added {relativeTime(model.createdAt)}</span>
             {model.sourceUrl && (
               <a
@@ -233,7 +238,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
           {selectedFile && <FileStats file={selectedFile} />}
 
-          {/* Risk detection applies to resin output only — it reads printed
+          {/* Risk detection applies to resin output only â€” it reads printed
               layers looking for trapped resin, islands and suction cups. */}
           {selectedFile?.kind === 'SLICED' && selectedFile.technology === 'SLA' && (
             <PrintIssues
@@ -255,7 +260,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
             onSlice={(fileId, profileId, autoPrintPrinterId, options) =>
               act(
                 () => post('/api/slice', { fileId, profileId, autoPrintPrinterId, options }),
-                'Slice queued — it will appear below when it finishes',
+                'Slice queued â€” it will appear below when it finishes',
               )
             }
             onPrint={async (fileId, printerId) => {
@@ -307,6 +312,15 @@ export function ModelDetail({ modelId }: { modelId: string }) {
               onChanged={load}
             />
           )}
+          <ImageGallery
+            modelId={modelId}
+            images={images}
+            coverFileId={model.coverFileId ?? null}
+            onChanged={() => {
+              void load();
+              router.refresh();
+            }}
+          />
           {others.length > 0 && (
             <FileList
               title="Other files"
@@ -343,7 +357,7 @@ function toApiOptions(o: ResinOptionsValue): Record<string, unknown> {
 function FileStats({ file }: { file: ModelFile }) {
   const stats: [string, string][] = [];
   if (file.bboxX !== null) {
-    stats.push(['Size', `${file.bboxX} × ${file.bboxY} × ${file.bboxZ} mm`]);
+    stats.push(['Size', `${file.bboxX} Ã— ${file.bboxY} Ã— ${file.bboxZ} mm`]);
   }
   if (file.triangles !== null) stats.push(['Triangles', file.triangles.toLocaleString()]);
   if (file.volumeMm3 !== null) {
@@ -422,7 +436,7 @@ function FileList({
             >
               <span className="block truncate">{file.filename}</span>
               <span className="block text-xs text-muted">
-                {FILE_KIND_LABEL[file.kind]} · {humanSize(file.sizeBytes)}
+                {FILE_KIND_LABEL[file.kind]} Â· {humanSize(file.sizeBytes)}
               </span>
             </button>
 
@@ -561,7 +575,7 @@ function SliceAndPrint({
               >
                 {profiles.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} ({p.technology} → .{p.outputFormat})
+                    {p.name} ({p.technology} â†’ .{p.outputFormat})
                   </option>
                 ))}
               </select>
@@ -648,10 +662,10 @@ function SliceAndPrint({
                 value={printerId}
                 onChange={(e) => setPrinterId(e.target.value)}
               >
-                <option value="">Choose a printer…</option>
+                <option value="">Choose a printerâ€¦</option>
                 {printable.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.name} — {p.status}
+                    {p.name} â€” {p.status}
                   </option>
                 ))}
               </select>
@@ -690,7 +704,7 @@ function SliceHistory({ tasks }: { tasks: SliceTask[] }) {
             <div className="flex flex-wrap items-center gap-2">
               <StatusIcon status={task.status} />
               <span className="font-medium">{task.inputFile.filename}</span>
-              <span className="text-muted">→ {task.profile.name}</span>
+              <span className="text-muted">â†’ {task.profile.name}</span>
               <span className="ml-auto text-xs text-muted">
                 {relativeTime(task.finishedAt ?? task.startedAt ?? task.createdAt)}
               </span>
@@ -698,7 +712,7 @@ function SliceHistory({ tasks }: { tasks: SliceTask[] }) {
 
             {task.outputFile && (
               <p className="mt-1 text-xs text-good">
-                {task.outputFile.filename} · {humanSize(task.outputFile.sizeBytes)}
+                {task.outputFile.filename} Â· {humanSize(task.outputFile.sizeBytes)}
               </p>
             )}
 
@@ -769,7 +783,7 @@ function NotesPanel({
         className="h-28 w-full resize-y"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Supports at 45°, print the base separately…"
+        placeholder="Supports at 45Â°, print the base separatelyâ€¦"
       />
 
       <button

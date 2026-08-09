@@ -78,9 +78,10 @@ model Model {
 }
 
 model ModelFile {
-  id      String @id @default(cuid())
-  modelId String
-  model   Model  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+  /// Null for output produced from a build plate, which spans several models.
+  modelId String?
+  model   Model?  @relation(fields: [modelId], references: [id], onDelete: Cascade)
 
   kind     FileKind
   filename String
@@ -107,10 +108,71 @@ model ModelFile {
   sliceInputs  SliceTask[] @relation("SliceInput")
   sliceOutputs SliceTask[] @relation("SliceOutput")
   jobs         PrintJob[]
+  plateItems   PlateItem[]
 
   @@index([modelId])
   @@index([kind])
   @@index([sha256])
+}
+
+// ---------------------------------------------------------------------------
+// Build plates
+//
+// A plate is an arrangement of meshes in printer space. Each item carries its
+// own transform; those are baked into the geometry before slicing, because
+// PrusaSlicer's CLI transform flags apply to everything it loads rather than
+// per object.
+// ---------------------------------------------------------------------------
+
+model Plate {
+  id   String  @id @default(cuid())
+  name String
+  notes String?
+
+  /// Which machine's build volume the layout is checked against.
+  printerId String?
+  printer   Printer? @relation(fields: [printerId], references: [id], onDelete: SetNull)
+
+  /// Remembered between edits so slicing a plate is one click.
+  profileId String?
+  profile   SlicerProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  /// Last used per-slice overrides (hollowing, supports, drain holes…).
+  options Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items PlateItem[]
+  tasks SliceTask[]
+
+  @@index([updatedAt])
+}
+
+model PlateItem {
+  id      String @id @default(cuid())
+  plateId String
+  plate   Plate  @relation(fields: [plateId], references: [id], onDelete: Cascade)
+
+  fileId String
+  file   ModelFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  /// Millimetres in printer space; Z is the drop onto the plate.
+  posX Float @default(0)
+  posY Float @default(0)
+  posZ Float @default(0)
+
+  /// Degrees.
+  rotX Float @default(0)
+  rotY Float @default(0)
+  rotZ Float @default(0)
+
+  /// Uniform for now; per-axis can be added without touching the bake step.
+  scale Float @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@index([plateId])
 }
 
 model Tag {
@@ -158,7 +220,8 @@ model SlicerProfile {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  tasks SliceTask[]
+  tasks  SliceTask[]
+  plates Plate[]
 
   @@index([technology])
 }
@@ -166,8 +229,13 @@ model SlicerProfile {
 model SliceTask {
   id String @id @default(cuid())
 
-  inputFileId String
-  inputFile   ModelFile @relation("SliceInput", fields: [inputFileId], references: [id], onDelete: Cascade)
+  /// Either a single mesh…
+  inputFileId String?
+  inputFile   ModelFile? @relation("SliceInput", fields: [inputFileId], references: [id], onDelete: Cascade)
+
+  /// …or a whole build plate, baked to one mesh at slice time.
+  plateId String?
+  plate   Plate?  @relation(fields: [plateId], references: [id], onDelete: Cascade)
 
   outputFileId String?
   outputFile   ModelFile? @relation("SliceOutput", fields: [outputFileId], references: [id], onDelete: SetNull)
@@ -226,7 +294,8 @@ model Printer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  jobs PrintJob[]
+  jobs   PrintJob[]
+  plates Plate[]
 
   @@unique([kind, host])
 }

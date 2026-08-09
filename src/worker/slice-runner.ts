@@ -6,6 +6,7 @@ import { env } from '../lib/env';
 import { absPath, sliceDirRelPath, safeName } from '../lib/storage';
 import { adapterFor, SliceFailedError, SlicerUnavailableError } from '../lib/slicer';
 import type { SliceOptions } from '../lib/slicer/options';
+import { bakePlate } from '../lib/slicer/plate';
 import {
   checkPrintIssues,
   summariseIssues,
@@ -38,12 +39,21 @@ export async function runNextSlice(): Promise<boolean> {
 
   const task = await prisma.sliceTask.findUnique({
     where: { id: candidate.id },
-    include: { inputFile: true, profile: true },
+    include: {
+      inputFile: true,
+      profile: true,
+      plate: {
+        include: {
+          items: { include: { file: true }, orderBy: { createdAt: 'asc' } },
+          printer: { select: { buildX: true, buildY: true, buildZ: true } },
+        },
+      },
+    },
   });
   if (!task) return true;
 
-  const label = `${task.inputFile.filename} → ${task.profile.name}`;
-  console.log(`[slice] ${task.id} start: ${label}`);
+  const sourceName = task.plate ? task.plate.name : (task.inputFile?.filename ?? 'unknown');
+  console.log(`[slice] ${task.id} start: ${sourceName} → ${task.profile.name}`);
 
   const workRel = sliceDirRelPath(task.id);
   const workDir = absPath(workRel);
@@ -53,21 +63,74 @@ export async function runNextSlice(): Promise<boolean> {
 
     const adapter = adapterFor(task.profile.technology);
     const logLines: string[] = [];
+    const onLog = (line: string) => {
+      logLines.push(line);
+      if (logLines.length > 4000) logLines.splice(0, 1000);
+    };
+
+    // A plate is many meshes with their own transforms; bake it down to one
+    // before slicing, since the slicer's transform flags are global.
+    let inputPath: string;
+    let plateMeta: Record<string, unknown> = {};
+
+    if (task.plate) {
+      const bakedPath = path.join(workDir, 'plate.stl');
+      const printer = task.plate.printer;
+      const baked = await bakePlate(
+        task.plate.items.map((i) => ({
+          path: absPath(i.file.storagePath),
+          posX: i.posX, posY: i.posY, posZ: i.posZ,
+          rotX: i.rotX, rotY: i.rotY, rotZ: i.rotZ,
+          scale: i.scale,
+        })),
+        bakedPath,
+        {
+          plate:
+            printer?.buildX && printer.buildY && printer.buildZ
+              ? { x: printer.buildX, y: printer.buildY, z: printer.buildZ }
+              : null,
+          workDir,
+          onLog,
+        },
+      );
+
+      if (!baked.ok) throw new Error(`Could not bake the plate: ${baked.error}`);
+      if (baked.fits === false) {
+        throw new Error(
+          `The plate does not fit the printer's build volume — too large in ` +
+            `${baked.exceeds?.join(' and ')}. Move or rescale the objects and try again.`,
+        );
+      }
+
+      onLog(`[plate] baked ${baked.items} objects, ${baked.sizeMm?.join(' x ')} mm`);
+      plateMeta = {
+        plate: {
+          id: task.plate.id,
+          name: task.plate.name,
+          items: baked.items,
+          sizeMm: baked.sizeMm,
+        },
+      };
+      inputPath = bakedPath;
+    } else {
+      if (!task.inputFile) throw new Error('Slice task has neither an input file nor a plate');
+      inputPath = absPath(task.inputFile.storagePath);
+    }
 
     const result = await adapter.slice({
-      inputPath: absPath(task.inputFile.storagePath),
+      inputPath,
       workDir,
       profile: task.profile,
       options: (task.options ?? null) as SliceOptions | null,
       timeoutMs: env.sliceTimeoutMs,
-      onLog: (line) => {
-        logLines.push(line);
-        if (logLines.length > 4000) logLines.splice(0, 1000);
-      },
+      onLog,
     });
 
     // Move the slicer's output to a stable name next to the model's other files.
-    const baseName = task.inputFile.filename.replace(/\.[^.]+$/, '');
+    const baseName = (task.plate?.name ?? task.inputFile?.filename ?? 'output').replace(
+      /\.[^.]+$/,
+      '',
+    );
     const outName = safeName(`${baseName}.${task.profile.outputFormat}`);
     const finalRel = path.posix.join(workRel, outName);
     const finalAbs = absPath(finalRel);
@@ -93,7 +156,9 @@ export async function runNextSlice(): Promise<boolean> {
 
     const outputFile = await prisma.modelFile.create({
       data: {
-        modelId: task.inputFile.modelId,
+        // Plate output belongs to no single model, so it has no modelId and is
+        // reached through the plate instead.
+        modelId: task.inputFile?.modelId ?? null,
         kind: FileKind.SLICED,
         technology: task.profile.technology,
         filename: outName,
@@ -102,7 +167,8 @@ export async function runNextSlice(): Promise<boolean> {
         sizeBytes: BigInt(stat.size),
         meta: {
           ...result.meta,
-          slicedFrom: task.inputFile.filename,
+          ...plateMeta,
+          slicedFrom: task.plate?.name ?? task.inputFile?.filename,
           profile: task.profile.name,
           ...(issues ? { issues } : {}),
         } as never,
@@ -127,7 +193,7 @@ export async function runNextSlice(): Promise<boolean> {
         task.id,
         task.autoPrintPrinterId,
         outputFile.id,
-        task.inputFile.modelId,
+        task.inputFile?.modelId ?? null,
         issues,
       );
     }
@@ -159,7 +225,7 @@ async function queueAutoPrint(
   taskId: string,
   printerId: string,
   fileId: string,
-  modelId: string,
+  modelId: string | null,
   issues: IssueReport | null,
 ): Promise<void> {
   // Never start an unattended print on a file with a resin trap or suction cup.
