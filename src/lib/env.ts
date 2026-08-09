@@ -43,6 +43,14 @@ export const env = {
   get sliceTimeoutMs() {
     return int('SLICE_TIMEOUT_SECONDS', 900) * 1000;
   },
+  /** Post-slice risk detection. Scales with layer count, so give it room. */
+  get issueCheckTimeoutMs() {
+    return int('ISSUE_CHECK_TIMEOUT_SECONDS', 600) * 1000;
+  },
+  /** Set false to skip risk detection entirely. */
+  get issueCheckEnabled() {
+    return (process.env.ISSUE_CHECK ?? 'true').toLowerCase() !== 'false';
+  },
 
   // Worker cadence
   get workerPollMs() {

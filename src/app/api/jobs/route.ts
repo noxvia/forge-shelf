@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { ok, handler, HttpError } from '@/lib/json';
 import { canPrint, adapterFor } from '@/lib/printers';
 import { ACTIVE_JOB_STATUSES } from '@/lib/jobs';
+import { blockingIssues, type IssueReport } from '@/lib/slicer/issues';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,6 +44,11 @@ export const GET = handler(async (req: Request) => {
 const createBody = z.object({
   printerId: z.string().min(1),
   fileId: z.string().min(1),
+  /**
+   * Send a file that risk detection flagged as dangerous. Explicit rather than
+   * implicit: the caller has to say they've looked at it.
+   */
+  acknowledgeRisks: z.boolean().optional(),
 });
 
 /**
@@ -52,7 +58,7 @@ const createBody = z.object({
 export const POST = handler(async (req: Request) => {
   const parsed = createBody.safeParse(await req.json());
   if (!parsed.success) throw new HttpError(parsed.error.issues[0].message, 422);
-  const { printerId, fileId } = parsed.data;
+  const { printerId, fileId, acknowledgeRisks } = parsed.data;
 
   const [printer, file] = await Promise.all([
     prisma.printer.findUnique({ where: { id: printerId } }),
@@ -77,6 +83,26 @@ export const POST = handler(async (req: Request) => {
       `${printer.name} cannot print ${file.filename}. It accepts: ${accepts}.`,
       422,
     );
+  }
+
+  // Refuse a file already known to carry a resin trap or suction cup unless the
+  // caller says they've seen the report. Only blocks on findings we actually
+  // have — an unchecked file is not treated as unsafe.
+  if (!acknowledgeRisks) {
+    const report = ((file.meta ?? {}) as { issues?: IssueReport }).issues;
+    const blocking = report ? blockingIssues(report) : [];
+    if (blocking.length > 0) {
+      const what = [...new Set(blocking.map((b) => b.type))].join(' and ');
+      const where = blocking
+        .slice(0, 3)
+        .map((b) => `${b.type} at layer ${b.layers}`)
+        .join(', ');
+      throw new HttpError(
+        `${file.filename} has ${what} detected in it, which can leak uncured resin or tear ` +
+          `the FEP (${where}). Review the report on the model page, then send it again to confirm.`,
+        409,
+      );
+    }
   }
 
   // One job at a time per printer — these machines have no queue of their own,

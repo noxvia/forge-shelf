@@ -1,11 +1,17 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { FileKind, TaskStatus } from '@prisma/client';
+import { FileKind, TaskStatus, Technology } from '@prisma/client';
 import { prisma } from '../lib/db';
 import { env } from '../lib/env';
 import { absPath, sliceDirRelPath, safeName } from '../lib/storage';
 import { adapterFor, SliceFailedError, SlicerUnavailableError } from '../lib/slicer';
 import type { SliceOptions } from '../lib/slicer/options';
+import {
+  checkPrintIssues,
+  summariseIssues,
+  blockingIssues,
+  type IssueReport,
+} from '../lib/slicer/issues';
 
 /** Keep the tail of a long slicer log; the head is rarely the interesting part. */
 const LOG_LIMIT = 20_000;
@@ -76,6 +82,15 @@ export async function runNextSlice(): Promise<boolean> {
 
     const stat = await fsp.stat(finalAbs);
 
+    // Risk detection runs before the task is marked done, so an auto-print
+    // decision can never be made ahead of knowing whether the file is safe.
+    let issues: IssueReport | null = null;
+    if (env.issueCheckEnabled && task.profile.technology === Technology.SLA) {
+      console.log(`[slice] ${task.id} checking for print risks`);
+      issues = await checkPrintIssues(finalAbs);
+      console.log(`[slice] ${task.id} risks: ${summariseIssues(issues)}`);
+    }
+
     const outputFile = await prisma.modelFile.create({
       data: {
         modelId: task.inputFile.modelId,
@@ -89,6 +104,7 @@ export async function runNextSlice(): Promise<boolean> {
           ...result.meta,
           slicedFrom: task.inputFile.filename,
           profile: task.profile.name,
+          ...(issues ? { issues } : {}),
         } as never,
       },
     });
@@ -107,7 +123,13 @@ export async function runNextSlice(): Promise<boolean> {
     console.log(`[slice] ${task.id} done: ${outName} (${stat.size} bytes)`);
 
     if (task.autoPrintPrinterId) {
-      await queueAutoPrint(task.id, task.autoPrintPrinterId, outputFile.id, task.inputFile.modelId);
+      await queueAutoPrint(
+        task.id,
+        task.autoPrintPrinterId,
+        outputFile.id,
+        task.inputFile.modelId,
+        issues,
+      );
     }
 
     return true;
@@ -138,7 +160,22 @@ async function queueAutoPrint(
   printerId: string,
   fileId: string,
   modelId: string,
+  issues: IssueReport | null,
 ): Promise<void> {
+  // Never start an unattended print on a file with a resin trap or suction cup.
+  // The user asked for auto-print on the assumption the slice would be fine;
+  // silently printing something that can tear an FEP is not honouring that.
+  const blocking = issues ? blockingIssues(issues) : [];
+  if (blocking.length > 0) {
+    const what = [...new Set(blocking.map((b) => b.type))].join(' and ');
+    const reason =
+      `Auto-print cancelled: risk detection found ${what} in the sliced file. ` +
+      `Review it on the model page and print manually if you're happy with it.`;
+    console.warn(`[slice] ${taskId} ${reason}`);
+    await prisma.sliceTask.update({ where: { id: taskId }, data: { error: reason } });
+    return;
+  }
+
   const printer = await prisma.printer.findUnique({
     where: { id: printerId },
     select: { id: true, name: true, enabled: true },

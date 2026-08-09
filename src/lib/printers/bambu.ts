@@ -289,6 +289,9 @@ interface BambuPrint {
   bed_temper?: number;
   chamber_temper?: number;
   print_error?: number;
+  /** Set when a print ends in FAILED, even while print_error stays 0. */
+  fail_reason?: string | number;
+  mc_print_error_code?: string | number;
   [k: string]: unknown;
 }
 
@@ -308,6 +311,24 @@ function parseStatus(p: BambuPrint): PrinterStatus {
   let state = STATE_MAP[gcodeState] ?? 'idle';
   if (p.print_error && p.print_error !== 0) state = 'error';
 
+  // A failed print reports gcode_state FAILED while print_error stays 0, with
+  // the detail in fail_reason. Reporting "error" with no explanation is worse
+  // than useless, so build the message from whichever field carries it.
+  const failReason = numOrNull(Number(p.fail_reason));
+  const errorCode = numOrNull(Number(p.mc_print_error_code));
+  let message: string | null = null;
+
+  if (p.print_error && p.print_error !== 0) {
+    message = `Printer error code ${p.print_error}`;
+  } else if (gcodeState === 'FAILED') {
+    message =
+      failReason && failReason !== 0
+        ? `The last print failed (reason code ${failReason}). Check the printer's screen for details.`
+        : 'The last print failed. Check the printer’s screen for details.';
+  } else if (errorCode && errorCode !== 0) {
+    message = `Printer reported error code ${errorCode}`;
+  }
+
   return {
     state,
     progress: typeof p.mc_percent === 'number' ? clamp(p.mc_percent) : null,
@@ -319,7 +340,7 @@ function parseStatus(p: BambuPrint): PrinterStatus {
     nozzleTemp: numOrNull(p.nozzle_temper),
     bedTemp: numOrNull(p.bed_temper),
     chamberTemp: numOrNull(p.chamber_temper),
-    message: p.print_error ? `Printer error code ${p.print_error}` : null,
+    message,
     raw: p,
   };
 }

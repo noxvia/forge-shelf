@@ -29,6 +29,7 @@ import type {
 } from '@/lib/types';
 import { FILE_KIND_LABEL } from '@/lib/types';
 import { ResinOptions, type ResinOptionsValue } from './ResinOptions';
+import { PrintIssues, type IssueReport } from './PrintIssues';
 
 // The viewer pulls in three.js and touches WebGL; keep it off the server.
 const ModelViewer = dynamicImport(
@@ -232,6 +233,20 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
           {selectedFile && <FileStats file={selectedFile} />}
 
+          {/* Risk detection applies to resin output only — it reads printed
+              layers looking for trapped resin, islands and suction cups. */}
+          {selectedFile?.kind === 'SLICED' && selectedFile.technology === 'SLA' && (
+            <PrintIssues
+              key={selectedFile.id}
+              fileId={selectedFile.id}
+              filename={selectedFile.filename}
+              report={
+                ((selectedFile.meta ?? {}) as { issues?: IssueReport }).issues ?? null
+              }
+              onChecked={load}
+            />
+          )}
+
           <SliceAndPrint
             model={model}
             printers={printers}
@@ -243,9 +258,31 @@ export function ModelDetail({ modelId }: { modelId: string }) {
                 'Slice queued — it will appear below when it finishes',
               )
             }
-            onPrint={(fileId, printerId) =>
-              act(() => post('/api/jobs', { printerId, fileId }), 'Print queued')
-            }
+            onPrint={async (fileId, printerId) => {
+              setBusy(true);
+              setError(null);
+              try {
+                await post('/api/jobs', { printerId, fileId });
+                flash('Print queued');
+              } catch (err) {
+                const message = err instanceof Error ? err.message : 'Could not queue print';
+                // A blocked print is recoverable: show what was found and let
+                // the user send it anyway, rather than leaving them stuck.
+                if (/detected in it/.test(message) && confirm(`${message}\n\nSend it anyway?`)) {
+                  try {
+                    await post('/api/jobs', { printerId, fileId, acknowledgeRisks: true });
+                    flash('Print queued despite detected risks');
+                  } catch (err2) {
+                    setError(err2 instanceof Error ? err2.message : 'Could not queue print');
+                  }
+                } else {
+                  setError(message);
+                }
+              } finally {
+                setBusy(false);
+                await load();
+              }
+            }}
           />
 
           {model.sliceTasks.length > 0 && <SliceHistory tasks={model.sliceTasks} />}
