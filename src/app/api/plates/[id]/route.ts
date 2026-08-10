@@ -30,7 +30,6 @@ const PLATE_INCLUDE = {
   printer: {
     select: { id: true, name: true, kind: true, buildX: true, buildY: true, buildZ: true },
   },
-  profile: { select: { id: true, name: true, technology: true, outputFormat: true } },
 } as const;
 
 export const GET = handler(async (_req: Request, { params }: Ctx) => {
@@ -40,17 +39,14 @@ export const GET = handler(async (_req: Request, { params }: Ctx) => {
   });
   if (!plate) throw new HttpError('Plate not found', 404);
 
-  const tasks = await prisma.sliceTask.findMany({
+  const exports = await prisma.modelFile.findMany({
     where: { plateId: params.id },
     orderBy: { createdAt: 'desc' },
     take: 10,
-    include: {
-      profile: { select: { id: true, name: true, technology: true, outputFormat: true } },
-      outputFile: { select: { id: true, filename: true, sizeBytes: true, meta: true } },
-    },
+    select: { id: true, filename: true, sizeBytes: true, createdAt: true, meta: true },
   });
 
-  return ok({ ...plate, tasks });
+  return ok({ ...plate, exports });
 });
 
 const transform = {
@@ -67,8 +63,6 @@ const patchBody = z.object({
   name: z.string().trim().min(1).max(160).optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
   printerId: z.string().min(1).nullable().optional(),
-  profileId: z.string().min(1).nullable().optional(),
-  options: z.record(z.unknown()).nullable().optional(),
   /** Add meshes to the plate. */
   addFileIds: z.array(z.string().min(1)).max(50).optional(),
   /** Remove items by their own id. */
@@ -83,7 +77,7 @@ const patchBody = z.object({
 export const PATCH = handler(async (req: Request, { params }: Ctx) => {
   const parsed = patchBody.safeParse(await req.json());
   if (!parsed.success) throw new HttpError(parsed.error.issues[0].message, 422);
-  const { addFileIds, removeItemIds, items, options, ...rest } = parsed.data;
+  const { addFileIds, removeItemIds, items, ...rest } = parsed.data;
 
   const exists = await prisma.plate.findUnique({
     where: { id: params.id },
@@ -129,7 +123,7 @@ export const PATCH = handler(async (req: Request, { params }: Ctx) => {
     }
     await tx.plate.update({
       where: { id: params.id },
-      data: { ...rest, ...(options === undefined ? {} : { options: options as never }) },
+      data: rest,
     });
   });
 
@@ -141,12 +135,6 @@ export const PATCH = handler(async (req: Request, { params }: Ctx) => {
 });
 
 export const DELETE = handler(async (_req: Request, { params }: Ctx) => {
-  const running = await prisma.sliceTask.findFirst({
-    where: { plateId: params.id, status: { in: ['QUEUED', 'RUNNING'] } },
-    select: { id: true },
-  });
-  if (running) throw new HttpError('This plate is being sliced right now', 409);
-
   await prisma.plate.delete({ where: { id: params.id } });
   return ok({ deleted: params.id });
 });

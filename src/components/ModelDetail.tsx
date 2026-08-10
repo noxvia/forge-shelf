@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -10,51 +10,36 @@ import {
   Trash2,
   Download,
   Loader2,
-  Scissors,
   Printer as PrinterIcon,
   ExternalLink,
   FileBox,
-  CheckCircle2,
-  XCircle,
-  Clock,
   Save,
 } from 'lucide-react';
 import { api, post, patch, del, humanSize, humanDuration, relativeTime } from '@/lib/api-client';
-import type {
-  ModelDetail as ModelDetailType,
-  ModelFile,
-  Printer,
-  SlicerProfile,
-  SliceTask,
-} from '@/lib/types';
+import type { ModelDetail as ModelDetailType, ModelFile, Printer } from '@/lib/types';
 import { FILE_KIND_LABEL } from '@/lib/types';
-import { ResinOptions, type ResinOptionsValue } from './ResinOptions';
 import { PrintIssues, type IssueReport } from './PrintIssues';
 import { ImageGallery } from './ImageGallery';
+import { OpenInSlicer } from './OpenInSlicer';
 
 // The viewer pulls in three.js and touches WebGL; keep it off the server.
-const ModelViewer = dynamicImport(
-  () => import('./ModelViewer').then((m) => m.ModelViewer),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="grid h-[420px] place-items-center rounded-lg border border-edge bg-panel2 text-muted">
-        <Loader2 size={20} className="animate-spin" />
-      </div>
-    ),
-  },
-);
+const ModelViewer = dynamicImport(() => import('./ModelViewer').then((m) => m.ModelViewer), {
+  ssr: false,
+  loading: () => (
+    <div className="grid h-[420px] place-items-center rounded-lg border border-edge bg-panel2 text-muted">
+      <Loader2 size={20} className="animate-spin" />
+    </div>
+  ),
+});
 
 export function ModelDetail({ modelId }: { modelId: string }) {
   const router = useRouter();
 
   const [model, setModel] = useState<ModelDetailType | null>(null);
   const [printers, setPrinters] = useState<Printer[]>([]);
-  const [profiles, setProfiles] = useState<SlicerProfile[]>([]);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -72,21 +57,19 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
   useEffect(() => {
     void load();
-    api<Printer[]>('/api/printers').then(setPrinters).catch(() => setPrinters([]));
-    api<SlicerProfile[]>('/api/profiles').then(setProfiles).catch(() => setProfiles([]));
+    api<Printer[]>('/api/printers')
+      .then(setPrinters)
+      .catch(() => setPrinters([]));
   }, [load]);
 
-  // Poll while anything is in flight, so slice and print state stays live
-  // without a websocket.
+  // Poll only while a print is in flight, so job state stays live without a
+  // websocket.
   useEffect(() => {
     if (!model) return;
-    const active =
-      model.sliceTasks.some((t) => t.status === 'QUEUED' || t.status === 'RUNNING') ||
-      model.jobs.some((j) =>
-        ['QUEUED', 'UPLOADING', 'STARTING', 'PRINTING', 'PAUSED'].includes(j.status),
-      );
+    const active = model.jobs.some((j) =>
+      ['QUEUED', 'UPLOADING', 'STARTING', 'PRINTING', 'PAUSED'].includes(j.status),
+    );
     if (!active) return;
-
     const timer = setInterval(() => void load(), 4000);
     return () => clearInterval(timer);
   }, [model, load]);
@@ -100,10 +83,8 @@ export function ModelDetail({ modelId }: { modelId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const result = (await fn()) as { warnings?: string[] } | undefined;
+      await fn();
       flash(success);
-      // Print-safety notes travel with the response rather than blocking it.
-      setWarnings(result?.warnings?.length ? result.warnings : []);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
@@ -127,7 +108,6 @@ export function ModelDetail({ modelId }: { modelId: string }) {
   const meshes = model.files.filter((f) => f.kind === 'MESH');
   const sliced = model.files.filter((f) => f.kind === 'SLICED');
   const images = model.files.filter((f) => f.kind === 'IMAGE');
-  // Images get their own gallery, so keep them out of the plain file list.
   const others = model.files.filter(
     (f) => f.kind !== 'MESH' && f.kind !== 'SLICED' && f.kind !== 'IMAGE',
   );
@@ -141,7 +121,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
           <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
             {model.designer && <span>by {model.designer}</span>}
             <span>{model.files.length} files</span>
-            {model.printCount > 0 && <span>printed {model.printCount}Ã—</span>}
+            {model.printCount > 0 && <span>printed {model.printCount}×</span>}
             <span>added {relativeTime(model.createdAt)}</span>
             {model.sourceUrl && (
               <a
@@ -199,16 +179,8 @@ export function ModelDetail({ modelId }: { modelId: string }) {
         </div>
       </header>
 
-      {notice && (
-        <p className="rounded bg-good/10 px-3 py-2 text-sm text-good">{notice}</p>
-      )}
+      {notice && <p className="rounded bg-good/10 px-3 py-2 text-sm text-good">{notice}</p>}
       {error && <p className="rounded bg-bad/10 px-3 py-2 text-sm text-bad">{error}</p>}
-
-      {warnings.map((w) => (
-        <p key={w} className="rounded bg-warn/10 px-3 py-2 text-sm text-warn">
-          {w}
-        </p>
-      ))}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-4">
@@ -238,31 +210,24 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
           {selectedFile && <FileStats file={selectedFile} />}
 
-          {/* Risk detection applies to resin output only â€” it reads printed
-              layers looking for trapped resin, islands and suction cups. */}
+          {selectedFile && <OpenInSlicer fileId={selectedFile.id} filename={selectedFile.filename} />}
+
+          {/* Risk detection reads printed layers, so it only applies to resin
+              output — files sliced elsewhere and uploaded here included. */}
           {selectedFile?.kind === 'SLICED' && selectedFile.technology === 'SLA' && (
             <PrintIssues
               key={selectedFile.id}
               fileId={selectedFile.id}
               filename={selectedFile.filename}
-              report={
-                ((selectedFile.meta ?? {}) as { issues?: IssueReport }).issues ?? null
-              }
+              report={((selectedFile.meta ?? {}) as { issues?: IssueReport }).issues ?? null}
               onChecked={load}
             />
           )}
 
-          <SliceAndPrint
-            model={model}
+          <SendToPrinter
+            sliced={sliced}
             printers={printers}
-            profiles={profiles}
             busy={busy}
-            onSlice={(fileId, profileId, autoPrintPrinterId, options) =>
-              act(
-                () => post('/api/slice', { fileId, profileId, autoPrintPrinterId, options }),
-                'Slice queued â€” it will appear below when it finishes',
-              )
-            }
             onPrint={async (fileId, printerId) => {
               setBusy(true);
               setError(null);
@@ -272,7 +237,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
               } catch (err) {
                 const message = err instanceof Error ? err.message : 'Could not queue print';
                 // A blocked print is recoverable: show what was found and let
-                // the user send it anyway, rather than leaving them stuck.
+                // the user send it anyway rather than leaving them stuck.
                 if (/detected in it/.test(message) && confirm(`${message}\n\nSend it anyway?`)) {
                   try {
                     await post('/api/jobs', { printerId, fileId, acknowledgeRisks: true });
@@ -289,8 +254,6 @@ export function ModelDetail({ modelId }: { modelId: string }) {
               }
             }}
           />
-
-          {model.sliceTasks.length > 0 && <SliceHistory tasks={model.sliceTasks} />}
         </div>
 
         <aside className="space-y-4">
@@ -302,16 +265,15 @@ export function ModelDetail({ modelId }: { modelId: string }) {
             modelId={modelId}
             onChanged={load}
           />
-          {sliced.length > 0 && (
-            <FileList
-              title="Print-ready"
-              files={sliced}
-              selectedId={selectedFileId}
-              onSelect={setSelectedFileId}
-              modelId={modelId}
-              onChanged={load}
-            />
-          )}
+          <FileList
+            title="Print-ready"
+            files={sliced}
+            selectedId={selectedFileId}
+            onSelect={setSelectedFileId}
+            modelId={modelId}
+            onChanged={load}
+            emptyHint="Sliced files you upload (.ctb, .goo, .gcode.3mf) appear here and can be sent straight to a printer."
+          />
           <ImageGallery
             modelId={modelId}
             images={images}
@@ -340,24 +302,10 @@ export function ModelDetail({ modelId }: { modelId: string }) {
 
 // ---------------------------------------------------------------------------
 
-/**
- * The form keeps drain-hole fields flat because they render as two plain
- * inputs; the API wants them nested. Convert on the way out.
- */
-function toApiOptions(o: ResinOptionsValue): Record<string, unknown> {
-  const { drainHoleCount, drainHoleDiameterMm, ...rest } = o;
-  return {
-    ...rest,
-    ...(drainHoleCount
-      ? { drainHoles: { count: drainHoleCount, diameterMm: drainHoleDiameterMm ?? 3 } }
-      : {}),
-  };
-}
-
 function FileStats({ file }: { file: ModelFile }) {
   const stats: [string, string][] = [];
   if (file.bboxX !== null) {
-    stats.push(['Size', `${file.bboxX} Ã— ${file.bboxY} Ã— ${file.bboxZ} mm`]);
+    stats.push(['Size', `${file.bboxX} × ${file.bboxY} × ${file.bboxZ} mm`]);
   }
   if (file.triangles !== null) stats.push(['Triangles', file.triangles.toLocaleString()]);
   if (file.volumeMm3 !== null) {
@@ -370,7 +318,6 @@ function FileStats({ file }: { file: ModelFile }) {
   if (typeof meta.estimatedSeconds === 'number') {
     stats.push(['Est. time', humanDuration(meta.estimatedSeconds)]);
   }
-  if (typeof meta.estimatedTime === 'string') stats.push(['Est. time', meta.estimatedTime]);
   if (typeof meta.resinMl === 'number') stats.push(['Resin', `${meta.resinMl.toFixed(1)} ml`]);
   if (typeof meta.filamentGrams === 'number') {
     stats.push(['Filament', `${meta.filamentGrams.toFixed(1)} g`]);
@@ -390,8 +337,8 @@ function FileStats({ file }: { file: ModelFile }) {
       </dl>
       {meta.invertedNormals === true && (
         <p className="mt-3 rounded bg-warn/10 px-3 py-2 text-xs text-warn">
-          This mesh has inverted normals. It will usually still slice, but check the preview
-          in your slicer if the result looks hollow.
+          This mesh has inverted normals. Most slicers cope, but check the preview if the
+          result looks hollow.
         </p>
       )}
     </div>
@@ -405,6 +352,7 @@ function FileList({
   onSelect,
   modelId,
   onChanged,
+  emptyHint,
 }: {
   title: string;
   files: ModelFile[];
@@ -412,351 +360,189 @@ function FileList({
   onSelect: (id: string) => void;
   modelId: string;
   onChanged: () => void;
+  emptyHint?: string;
 }) {
   const [removing, setRemoving] = useState<string | null>(null);
+
+  if (files.length === 0 && !emptyHint) return null;
 
   return (
     <section className="card p-3">
       <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
         {title}
       </h2>
-      <ul className="space-y-1">
-        {files.map((file) => (
-          <li
-            key={file.id}
-            className={clsx(
-              'group flex items-center gap-2 rounded px-2 py-1.5 text-sm',
-              selectedId === file.id ? 'bg-panel2' : 'hover:bg-panel2/60',
-            )}
-          >
-            <button
-              type="button"
-              className="min-w-0 flex-1 text-left"
-              onClick={() => onSelect(file.id)}
-            >
-              <span className="block truncate">{file.filename}</span>
-              <span className="block text-xs text-muted">
-                {FILE_KIND_LABEL[file.kind]} Â· {humanSize(file.sizeBytes)}
-              </span>
-            </button>
-
-            <a
-              href={`/api/files/${file.id}?download=1`}
-              className="text-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
-              title="Download"
-              download
-            >
-              <Download size={14} />
-            </a>
-
-            <button
-              type="button"
-              className="text-muted opacity-0 transition-opacity hover:text-bad group-hover:opacity-100"
-              title="Delete file"
-              disabled={removing === file.id}
-              onClick={async () => {
-                if (!confirm(`Delete ${file.filename}?`)) return;
-                setRemoving(file.id);
-                try {
-                  await del(`/api/models/${modelId}/files?fileId=${file.id}`);
-                  onChanged();
-                } catch (err) {
-                  alert(err instanceof Error ? err.message : 'Could not delete');
-                } finally {
-                  setRemoving(null);
-                }
-              }}
-            >
-              {removing === file.id ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Trash2 size={14} />
+      {files.length === 0 ? (
+        <p className="px-2 py-1.5 text-xs text-muted">{emptyHint}</p>
+      ) : (
+        <ul className="space-y-1">
+          {files.map((file) => (
+            <li
+              key={file.id}
+              className={clsx(
+                'group flex items-center gap-2 rounded px-2 py-1.5 text-sm',
+                selectedId === file.id ? 'bg-panel2' : 'hover:bg-panel2/60',
               )}
-            </button>
-          </li>
-        ))}
-      </ul>
+            >
+              <button
+                type="button"
+                className="min-w-0 flex-1 text-left"
+                onClick={() => onSelect(file.id)}
+              >
+                <span className="block truncate">{file.filename}</span>
+                <span className="block text-xs text-muted">
+                  {FILE_KIND_LABEL[file.kind]} · {humanSize(file.sizeBytes)}
+                </span>
+              </button>
+
+              <a
+                href={`/api/files/${file.id}?download=1`}
+                className="text-muted opacity-0 transition-opacity hover:text-ink group-hover:opacity-100"
+                title="Download"
+                download
+              >
+                <Download size={14} />
+              </a>
+
+              <button
+                type="button"
+                className="text-muted opacity-0 transition-opacity hover:text-bad group-hover:opacity-100"
+                title="Delete file"
+                disabled={removing === file.id}
+                onClick={async () => {
+                  if (!confirm(`Delete ${file.filename}?`)) return;
+                  setRemoving(file.id);
+                  try {
+                    await del(`/api/models/${modelId}/files?fileId=${file.id}`);
+                    onChanged();
+                  } catch (err) {
+                    alert(err instanceof Error ? err.message : 'Could not delete');
+                  } finally {
+                    setRemoving(null);
+                  }
+                }}
+              >
+                {removing === file.id ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
-function SliceAndPrint({
-  model,
+/** Sends an already-sliced file to a printer. Nothing is sliced here any more. */
+function SendToPrinter({
+  sliced,
   printers,
-  profiles,
   busy,
-  onSlice,
   onPrint,
 }: {
-  model: ModelDetailType;
+  sliced: ModelFile[];
   printers: Printer[];
-  profiles: SlicerProfile[];
   busy: boolean;
-  onSlice: (
-    fileId: string,
-    profileId: string,
-    autoPrintPrinterId: string | null,
-    options?: ResinOptionsValue,
-  ) => void;
   onPrint: (fileId: string, printerId: string) => void;
 }) {
-  const meshes = model.files.filter((f) => f.kind === 'MESH');
-  const sliced = model.files.filter((f) => f.kind === 'SLICED');
-
-  const [meshId, setMeshId] = useState(meshes[0]?.id ?? '');
-  const [profileId, setProfileId] = useState('');
-  const [autoPrint, setAutoPrint] = useState('');
-  const [resinOptions, setResinOptions] = useState<ResinOptionsValue>({});
-  const [printFileId, setPrintFileId] = useState(sliced[0]?.id ?? '');
+  const [fileId, setFileId] = useState('');
   const [printerId, setPrinterId] = useState('');
 
   useEffect(() => {
-    if (!meshId && meshes[0]) setMeshId(meshes[0].id);
-    if (!printFileId && sliced[0]) setPrintFileId(sliced[0].id);
-    if (!profileId && profiles[0]) {
-      setProfileId(profiles.find((p) => p.isDefault)?.id ?? profiles[0].id);
-    }
-  }, [meshes, sliced, profiles, meshId, printFileId, profileId]);
+    if (!fileId && sliced[0]) setFileId(sliced[0].id);
+  }, [sliced, fileId]);
 
-  const selectedProfile = profiles.find((p) => p.id === profileId);
-  // Only offer auto-print on printers that match the profile's technology.
-  const compatiblePrinters = printers.filter(
-    (p) =>
-      p.enabled &&
-      (!selectedProfile ||
-        (selectedProfile.technology === 'SLA') === (p.kind === 'RESIN_SDCP')),
-  );
-
-  const printable = printers.filter((p) => {
+  // Only offer printers that can actually read the chosen file.
+  const compatible = printers.filter((p) => {
     if (!p.enabled) return false;
-    const file = sliced.find((f) => f.id === printFileId);
+    const file = sliced.find((f) => f.id === fileId);
     if (!file) return false;
-    const isResinFile = /\.(ctb|cbddlp|goo|pwmx|pwma|pws)$/i.test(file.filename);
-    return isResinFile === (p.kind === 'RESIN_SDCP');
+    const isResin = /\.(ctb|cbddlp|goo|pwmx|pwma|pws)$/i.test(file.filename);
+    return isResin === (p.kind === 'RESIN_SDCP');
   });
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <section className="card p-4">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <Scissors size={15} className="text-accent" />
-          Slice
-        </h2>
+    <section className="card p-4">
+      <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+        <PrinterIcon size={15} className="text-accent2" />
+        Send to printer
+      </h2>
 
-        {meshes.length === 0 ? (
-          <p className="text-sm text-muted">No meshes on this model to slice.</p>
-        ) : profiles.length === 0 ? (
-          <p className="text-sm text-muted">
-            No slicer profiles yet. <Link href="/profiles" className="text-accent2 hover:underline">Create one</Link>.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label className="label" htmlFor="slice-mesh">Mesh</label>
-              <select
-                id="slice-mesh"
-                className="w-full"
-                value={meshId}
-                onChange={(e) => setMeshId(e.target.value)}
-              >
-                {meshes.map((f) => (
-                  <option key={f.id} value={f.id}>{f.filename}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="slice-profile">Profile</label>
-              <select
-                id="slice-profile"
-                className="w-full"
-                value={profileId}
-                onChange={(e) => setProfileId(e.target.value)}
-              >
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.technology} â†’ .{p.outputFormat})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="slice-auto">Then print on</label>
-              <select
-                id="slice-auto"
-                className="w-full"
-                value={autoPrint}
-                onChange={(e) => setAutoPrint(e.target.value)}
-              >
-                <option value="">Don&apos;t print automatically</option>
-                {compatiblePrinters.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-
-            {selectedProfile?.technology === 'SLA' && (
-              <ResinOptions value={resinOptions} onChange={setResinOptions} />
-            )}
-
-            <button
-              type="button"
-              className="btn-primary w-full justify-center"
-              disabled={busy || !meshId || !profileId}
-              onClick={() =>
-                onSlice(
-                  meshId,
-                  profileId,
-                  autoPrint || null,
-                  selectedProfile?.technology === 'SLA' && Object.keys(resinOptions).length > 0
-                    ? toApiOptions(resinOptions)
-                    : undefined,
-                )
-              }
+      {sliced.length === 0 ? (
+        <p className="text-sm text-muted">
+          No print-ready files yet. Slice this model in ChiTuBox, Bambu Studio or Lychee, then
+          upload the result here and it can go straight to a printer.
+        </p>
+      ) : printers.length === 0 ? (
+        <p className="text-sm text-muted">
+          No printers configured.{' '}
+          <Link href="/printers" className="text-accent2 hover:underline">
+            Add one
+          </Link>
+          .
+        </p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="label" htmlFor="send-file">
+              File
+            </label>
+            <select
+              id="send-file"
+              className="w-full"
+              value={fileId}
+              onChange={(e) => setFileId(e.target.value)}
             >
-              <Scissors size={14} />
-              Slice
-            </button>
+              {sliced.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.filename} ({humanSize(f.sizeBytes)})
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-      </section>
 
-      <section className="card p-4">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-          <PrinterIcon size={15} className="text-accent2" />
-          Print
-        </h2>
+          <div>
+            <label className="label" htmlFor="send-printer">
+              Printer
+            </label>
+            <select
+              id="send-printer"
+              className="w-full"
+              value={printerId}
+              onChange={(e) => setPrinterId(e.target.value)}
+            >
+              <option value="">Choose a printer…</option>
+              {compatible.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} — {p.status}
+                </option>
+              ))}
+            </select>
+            {compatible.length === 0 && (
+              <p className="mt-1 text-xs text-warn">No enabled printer accepts this file type.</p>
+            )}
+          </div>
 
-        {sliced.length === 0 ? (
-          <p className="text-sm text-muted">
-            Nothing print-ready yet. Slice a mesh, or upload a file straight from your slicer.
-          </p>
-        ) : printers.length === 0 ? (
-          <p className="text-sm text-muted">
-            No printers configured. <Link href="/printers" className="text-accent2 hover:underline">Add one</Link>.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label className="label" htmlFor="print-file">File</label>
-              <select
-                id="print-file"
-                className="w-full"
-                value={printFileId}
-                onChange={(e) => setPrintFileId(e.target.value)}
-              >
-                {sliced.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.filename} ({humanSize(f.sizeBytes)})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="label" htmlFor="print-printer">Printer</label>
-              <select
-                id="print-printer"
-                className="w-full"
-                value={printerId}
-                onChange={(e) => setPrinterId(e.target.value)}
-              >
-                <option value="">Choose a printerâ€¦</option>
-                {printable.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} â€” {p.status}
-                  </option>
-                ))}
-              </select>
-              {printable.length === 0 && (
-                <p className="mt-1 text-xs text-warn">
-                  No enabled printer accepts this file type.
-                </p>
-              )}
-            </div>
-
+          <div className="sm:col-span-2">
             <button
               type="button"
               className="btn-primary w-full justify-center"
-              disabled={busy || !printFileId || !printerId}
-              onClick={() => onPrint(printFileId, printerId)}
+              disabled={busy || !fileId || !printerId}
+              onClick={() => onPrint(fileId, printerId)}
             >
               <PrinterIcon size={14} />
               Send to printer
             </button>
           </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function SliceHistory({ tasks }: { tasks: SliceTask[] }) {
-  const [openLog, setOpenLog] = useState<string | null>(null);
-
-  return (
-    <section className="card p-4">
-      <h2 className="mb-3 text-sm font-semibold">Slice history</h2>
-      <ul className="space-y-2">
-        {tasks.map((task) => (
-          <li key={task.id} className="rounded bg-panel2 p-3 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <StatusIcon status={task.status} />
-              <span className="font-medium">{task.inputFile.filename}</span>
-              <span className="text-muted">â†’ {task.profile.name}</span>
-              <span className="ml-auto text-xs text-muted">
-                {relativeTime(task.finishedAt ?? task.startedAt ?? task.createdAt)}
-              </span>
-            </div>
-
-            {task.outputFile && (
-              <p className="mt-1 text-xs text-good">
-                {task.outputFile.filename} Â· {humanSize(task.outputFile.sizeBytes)}
-              </p>
-            )}
-
-            {task.error && (
-              <p className="mt-1 whitespace-pre-wrap text-xs text-bad">{task.error}</p>
-            )}
-
-            {task.log && (
-              <>
-                <button
-                  type="button"
-                  className="mt-1 text-xs text-muted underline hover:text-ink"
-                  onClick={() => setOpenLog(openLog === task.id ? null : task.id)}
-                >
-                  {openLog === task.id ? 'Hide' : 'Show'} slicer log
-                </button>
-                {openLog === task.id && (
-                  <pre className="mt-2 max-h-64 overflow-auto rounded bg-bg p-2 font-mono text-[11px] text-muted">
-                    {task.log}
-                  </pre>
-                )}
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
+        </div>
+      )}
     </section>
   );
 }
 
-function StatusIcon({ status }: { status: SliceTask['status'] }) {
-  if (status === 'RUNNING') return <Loader2 size={14} className="animate-spin text-accent2" />;
-  if (status === 'QUEUED') return <Clock size={14} className="text-muted" />;
-  if (status === 'DONE') return <CheckCircle2 size={14} className="text-good" />;
-  return <XCircle size={14} className="text-bad" />;
-}
-
-function NotesPanel({
-  model,
-  onSaved,
-}: {
-  model: ModelDetailType;
-  onSaved: () => void;
-}) {
+function NotesPanel({ model, onSaved }: { model: ModelDetailType; onSaved: () => void }) {
   const [notes, setNotes] = useState(model.notes ?? '');
   const [tags, setTags] = useState(model.tags.map((t) => t.name).join(', '));
   const [saving, setSaving] = useState(false);
@@ -768,7 +554,9 @@ function NotesPanel({
         Notes &amp; tags
       </h2>
 
-      <label className="label px-1" htmlFor="detail-tags">Tags</label>
+      <label className="label px-1" htmlFor="detail-tags">
+        Tags
+      </label>
       <input
         id="detail-tags"
         className="mb-3 w-full"
@@ -777,13 +565,15 @@ function NotesPanel({
         placeholder="comma, separated"
       />
 
-      <label className="label px-1" htmlFor="detail-notes">Notes</label>
+      <label className="label px-1" htmlFor="detail-notes">
+        Notes
+      </label>
       <textarea
         id="detail-notes"
         className="h-28 w-full resize-y"
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Supports at 45Â°, print the base separatelyâ€¦"
+        placeholder="Supports at 45°, print the base separately…"
       />
 
       <button
@@ -795,7 +585,10 @@ function NotesPanel({
           try {
             await patch(`/api/models/${model.id}`, {
               notes: notes || null,
-              tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+              tags: tags
+                .split(',')
+                .map((t) => t.trim())
+                .filter(Boolean),
             });
             onSaved();
           } catch (err) {

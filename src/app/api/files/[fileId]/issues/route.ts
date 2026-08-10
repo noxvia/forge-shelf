@@ -2,7 +2,7 @@ import { FileKind, Technology } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { ok, handler, HttpError } from '@/lib/json';
 import { absPath, statOrNull } from '@/lib/storage';
-import { checkPrintIssues, summariseIssues } from '@/lib/slicer/issues';
+import { checkPrintIssues, summariseIssues } from '@/lib/tools/issues';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

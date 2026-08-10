@@ -22,27 +22,23 @@ COPY . .
 RUN npx next build
 
 # Drop dev dependencies but keep the generated Prisma client, prisma CLI and tsx
-# (both are runtime dependencies: migrations and the worker need them).
+# (both are runtime dependencies: schema sync and the worker need them).
 RUN npm prune --omit=dev
 
 
 # ============================================================================
-# Stage 2 — slicer toolchain (AppImage half)
+# Stage 2 — UVtools
 #
-# Build with --build-arg INSTALL_SLICERS=false for a much smaller image that can
-# catalogue and send pre-sliced files but cannot slice.
+# Slicing happens in the user's desktop slicer. UVtools stays because it is not
+# a slicer: it inspects already-sliced files for resin traps, islands and
+# suction cups, including files produced by ChiTuBox or Lychee and uploaded here.
 #
-# These fetches fail the build if a URL dies. An earlier version only warned,
-# which produced a 3 GB image that silently could not slice — strictly worse
-# than a red build. If a URL has moved, override the matching *_URL arg.
-#
-# PrusaSlicer is deliberately absent here: Prusa stopped publishing Linux
-# AppImages on GitHub, so it comes from Debian in the runtime stage instead.
+# Build with --build-arg INSTALL_TOOLS=false to omit it; the app then reports
+# inspection as unavailable rather than failing mysteriously.
 # ============================================================================
-FROM debian:bookworm-slim AS slicers
+FROM debian:trixie-slim AS uvtools
 
-ARG INSTALL_SLICERS=true
-ARG ORCA_URL=https://github.com/SoftFever/OrcaSlicer/releases/download/v2.4.2/OrcaSlicer_Linux_AppImage_Ubuntu2404_V2.4.2.AppImage
+ARG INSTALL_TOOLS=true
 ARG UVTOOLS_URL=https://github.com/sn4k3/UVtools/releases/download/v6.2.0/UVtools_linux-x64_v6.2.0.AppImage
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -51,164 +47,80 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /opt
 
+# A dead URL fails the build. An earlier version only warned, and shipped an
+# image that silently could not do its job — strictly worse than a red build.
 RUN set -eux; \
-    fetch_appimage() { \
-      name="$1"; url="$2"; \
-      mkdir -p "/opt/$name"; \
-      echo "==> fetching $name from $url"; \
-      curl -fSL --retry 3 -o "/tmp/$name.AppImage" "$url"; \
-      chmod +x "/tmp/$name.AppImage"; \
-      ( cd /tmp && "/tmp/$name.AppImage" --appimage-extract >/dev/null ); \
-      cp -a /tmp/squashfs-root/. "/opt/$name/"; \
-      rm -rf /tmp/squashfs-root "/tmp/$name.AppImage"; \
-      echo "==> $name installed"; \
-    }; \
-    if [ "$INSTALL_SLICERS" = "true" ]; then \
-      fetch_appimage orca "$ORCA_URL"; \
-      fetch_appimage uvtools "$UVTOOLS_URL"; \
-      # .NET debug symbols ship in the AppImage and are dead weight in a
-      # container. The verification gate below still exercises the binary.
+    if [ "$INSTALL_TOOLS" = "true" ]; then \
+      mkdir -p /opt/uvtools; \
+      curl -fSL --retry 3 -o /tmp/uvtools.AppImage "$UVTOOLS_URL"; \
+      chmod +x /tmp/uvtools.AppImage; \
+      ( cd /tmp && /tmp/uvtools.AppImage --appimage-extract >/dev/null ); \
+      cp -a /tmp/squashfs-root/. /opt/uvtools/; \
+      rm -rf /tmp/squashfs-root /tmp/uvtools.AppImage; \
+      # .NET debug symbols are dead weight in a container.
       find /opt/uvtools -name '*.pdb' -delete; \
-      # Prove the extraction produced what the app expects, rather than
-      # discovering it is missing at the first slice.
-      test -x /opt/orca/AppRun; \
       test -f /opt/uvtools/usr/bin/UVtoolsCmd; \
-      echo "==> AppImage slicers verified"; \
+      echo "==> UVtools installed"; \
     else \
-      echo "==> INSTALL_SLICERS=false, skipping slicer toolchain"; \
-      mkdir -p /opt/orca /opt/uvtools; \
+      echo "==> INSTALL_TOOLS=false, skipping UVtools"; \
+      mkdir -p /opt/uvtools; \
     fi
 
 
 # ============================================================================
 # Stage 3 — runtime
 # ============================================================================
-#
-# Trixie, not bookworm, and not by preference: OrcaSlicer 2.4.2 is built against
-# Ubuntu 24.04 and needs glibc 2.38+/GLIBCXX_3.4.32. Bookworm ships glibc 2.36,
-# so the binary refuses to start there. Trixie's 2.41 runs it, and brings
-# prusa-slicer 2.9.2 (vs 2.5.0) and native WebKitGTK 4.1 along with it.
 FROM node:22-trixie-slim AS runtime
 
-ARG INSTALL_SLICERS=true
+ARG INSTALL_TOOLS=true
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PORT=3000 \
     STORAGE_DIR=/data
 
-# openssl: Prisma. The rest are shared libraries the slicer AppImages link
-# against; xvfb provides the dummy display OrcaSlicer still wants even when
-# slicing headlessly.
-# openssl: Prisma. prusa-slicer: Debian's package, which is how SLA slicing is
-# obtained now that upstream no longer ships a Linux AppImage — 2.5.0 is older
-# than current upstream but is packaged, patched and pulls its own dependencies.
-# The library list is for the OrcaSlicer AppImage, which bundles nothing; xvfb
-# provides the dummy display it still wants even when slicing headlessly.
+# openssl is for Prisma. Python carries the mesh work: plate export, inspection
+# and the editing plugins. No GUI toolkit is needed any more — nothing here
+# opens a window.
+#
+# libicu is not optional despite that: UVtools is a .NET application and its
+# runtime aborts at startup without it ("Couldn't find a valid ICU package").
+# It used to arrive as a transitive dependency of the GTK stack, so removing
+# that stack broke UVtools — caught by the build gate rather than by a user.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       openssl ca-certificates tini \
-    && if [ "$INSTALL_SLICERS" = "true" ]; then \
-         apt-get install -y --no-install-recommends \
-           prusa-slicer \
-           python3 python3-pip \
-           xvfb xauth \
-           libgtk-3-0t64 libglib2.0-0t64 libgdk-pixbuf-2.0-0 libpango-1.0-0 \
-           libcairo2 libgl1 libglu1-mesa libegl1 libxrandr2 libxi6 libxcursor1 \
-           libxinerama1 libxkbcommon0 libsm6 libice6 libdbus-1-3 libnss3 \
-           libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 libgbm1 \
-           libasound2t64 \
-           libwebkit2gtk-4.1-0 libjavascriptcoregtk-4.1-0 libsoup2.4-1 \
-           fontconfig fonts-dejavu-core ; \
+    && if [ "$INSTALL_TOOLS" = "true" ]; then \
+         apt-get install -y --no-install-recommends python3 python3-pip libicu76 ; \
        fi \
     && rm -rf /var/lib/apt/lists/*
 
-# Mesh pre-processing for drain holes:
-#   manifold3d - the boolean engine trimesh subtracts with
-#   rtree      - spatial index trimesh's ray casting needs; without it hole
-#                placement dies with "No module named 'rtree'" at slice time
-RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
+# manifold3d      — boolean engine trimesh subtracts with (drain holes, splitting)
+# rtree           — spatial index trimesh's ray casting needs; without it hole
+#                   placement dies with "No module named 'rtree'" at run time
+# networkx + lxml — what trimesh's 3MF *reader* needs. Our writer needs neither,
+#                   but reading 3MF back is how uploads get their mesh stats and
+#                   how plate items load.
+RUN if [ "$INSTALL_TOOLS" = "true" ]; then \
       pip install --break-system-packages --no-cache-dir \
-        trimesh==4.5.3 manifold3d==3.0.1 rtree==1.3.0 numpy ; \
+        trimesh==4.5.3 manifold3d==3.0.1 rtree==1.3.0 \
+        networkx==3.4.2 lxml==5.3.0 numpy ; \
     fi
 
-COPY --from=slicers /opt/orca /opt/orca
-COPY --from=slicers /opt/uvtools /opt/uvtools
+COPY --from=uvtools /opt/uvtools /opt/uvtools
 
 # Copied ahead of the rest of the source so the gate below can run the real
-# drilling script. The full src copy later supersedes this.
+# scripts. The full src copy later supersedes this.
 COPY src/tools /app/src/tools
 
-# Gate the build on every slicer actually *running*, not merely existing.
-#
-# Checking for the file is not enough: an earlier build had all three files in
-# place while OrcaSlicer aborted on a missing WebKitGTK and xvfb-run aborted on a
-# missing xauth. Both only surfaced when a user tried to slice. Executing each
-# one here turns those into build failures.
-#
-# Probes match on expected *output*, not exit status: UVtoolsCmd --help exits 1
-# even when perfectly healthy, so an exit-code gate would fail good builds. A
-# binary that dies on a missing shared library prints an error instead of usage
-# text, so output matching still catches the real failure.
-RUN if [ "$INSTALL_SLICERS" = "true" ]; then \
-      set -e; \
-      echo "==> verifying slicer toolchain"; \
-      chmod +x /opt/uvtools/usr/bin/UVtoolsCmd; \
-      \
-      probe() { \
-        name="$1"; pattern="$2"; shift 2; \
-        if "$@" 2>&1 | grep -qiE "$pattern"; then \
-          echo "    $name ok"; \
-        else \
-          echo "FATAL: $name did not start correctly. First lines of its output:"; \
-          "$@" 2>&1 | head -5 | sed 's/^/      /'; \
-          exit 1; \
-        fi; \
-      }; \
-      \
-      command -v prusa-slicer >/dev/null || { echo "FATAL: prusa-slicer not installed"; exit 1; }; \
-      probe "prusa-slicer" "usage|--export|prusaslicer" prusa-slicer --help; \
-      \
-      xvfb-run -a true || { echo "FATAL: xvfb-run is broken — is xauth installed?"; exit 1; }; \
-      echo "    xvfb-run     ok"; \
-      \
-      # The Orca pattern must not contain "orca": its failure message includes
-      # the path /opt/orca/bin/orca-slicer, so a loose pattern matched the very
-      # error it was meant to catch and passed a build where Orca could not run
-      # at all. Match only text that appears in genuine usage output.
-      probe "orcaslicer " "^Usage: orca-slicer|--slice option" xvfb-run -a /opt/orca/AppRun --help; \
-      probe "uvtools    " "convert|usage|command" /opt/uvtools/usr/bin/UVtoolsCmd --help; \
-      \
-      # Exercise the drill script itself rather than a proxy for it. An earlier
-      # gate only tested boolean subtraction and passed an image whose ray
-      # casting was broken, so hole placement failed at slice time instead.
-      python3 -c "import trimesh; \
-        m=trimesh.creation.box(extents=[20,20,20]); \
-        m.export('/tmp/gate.stl')" \
-        && python3 /app/src/tools/drill_drain_holes.py /tmp/gate.stl /tmp/gate-drilled.stl 2 3 \
-             | grep -q '\"ok\": true' \
-        && python3 -c "import trimesh,sys; \
-             a=trimesh.load('/tmp/gate.stl'); b=trimesh.load('/tmp/gate-drilled.stl'); \
-             sys.exit(0 if (b.volume < a.volume and b.is_watertight) else 1)" \
-        || { echo 'FATAL: drain-hole drilling does not work'; \
-             python3 /app/src/tools/drill_drain_holes.py /tmp/gate.stl /tmp/x.stl 2 3 2>&1 | head -5; \
-             exit 1; }; \
-      rm -f /tmp/gate.stl /tmp/gate-drilled.stl; \
-      echo "    meshtools    ok"; \
-      \
-      # Prove the vendor presets Orca inherits from are actually in the image;
-      # without them every Bambu profile fails at slice time, not build time.
-      test -d /opt/orca/resources/profiles/BBL/machine \
-        || { echo "FATAL: OrcaSlicer vendor profiles missing"; exit 1; }; \
-      echo "    presets      ok ($(ls /opt/orca/resources/profiles | wc -l) vendors)"; \
-      \
-      echo "==> slicer toolchain verified"; \
-    fi
+# The gate lives in a script rather than inline: a heredoc cannot be mixed with
+# backslash continuations in a RUN, and the check is worth reading on its own.
+RUN if [ "$INSTALL_TOOLS" = "true" ]; then sh /app/src/tools/verify-tools.sh; fi
 
 WORKDIR /app
 
 # Ownership is set during the copy. A later `chown -R` on /app would rewrite
 # every file's metadata, and overlayfs stores that as a full second copy of
-# node_modules and .next — 662 MB of pure duplication in the published image.
+# node_modules and .next.
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/.next ./.next
 COPY --from=build --chown=node:node /app/public ./public

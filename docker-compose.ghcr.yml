@@ -1,4 +1,4 @@
-﻿# Pull-only deployment. No build step, no source checkout needed beyond this
+# Pull-only deployment. No build step, no source checkout needed beyond this
 # file and a .env.
 #
 #   docker compose -f docker-compose.ghcr.yml pull
@@ -39,9 +39,10 @@ services:
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       STORAGE_DIR: /data
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
-      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
+      ALLOW_DATA_LOSS: ${ALLOW_DATA_LOSS:-false}
       UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-}
+      PLUGINS_DIR: ${PLUGINS_DIR:-/data/plugins}
       SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
     ports:
       - '${APP_PORT:-8770}:3000'
@@ -61,10 +62,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       STORAGE_DIR: /data
-      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
       UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
-      SLICE_TIMEOUT_SECONDS: ${SLICE_TIMEOUT_SECONDS:-900}
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-}
+      PLUGINS_DIR: ${PLUGINS_DIR:-/data/plugins}
       WORKER_POLL_MS: ${WORKER_POLL_MS:-3000}
       PRINTER_POLL_MS: ${PRINTER_POLL_MS:-10000}
       SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}

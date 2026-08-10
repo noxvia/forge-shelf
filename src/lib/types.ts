@@ -7,7 +7,6 @@
 export type FileKind = 'MESH' | 'SLICED' | 'IMAGE' | 'DOC' | 'ARCHIVE';
 export type Technology = 'FDM' | 'SLA';
 export type PrinterKind = 'FDM_BAMBU' | 'RESIN_SDCP';
-export type TaskStatus = 'QUEUED' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';
 export type JobStatus =
   | 'QUEUED'
   | 'UPLOADING'
@@ -57,19 +56,6 @@ export interface ModelSummary {
   updatedAt: string;
   tags: Tag[];
   files: Pick<ModelFile, 'id' | 'kind' | 'filename' | 'sizeBytes' | 'technology'>[];
-}
-
-export interface SliceTask {
-  id: string;
-  status: TaskStatus;
-  error: string | null;
-  log: string | null;
-  createdAt: string;
-  startedAt: string | null;
-  finishedAt: string | null;
-  profile: { id: string; name: string; technology: Technology; outputFormat: string };
-  inputFile: { id: string; filename: string; modelId?: string };
-  outputFile: { id: string; filename: string; sizeBytes: string; meta?: unknown } | null;
 }
 
 export interface PrintJob {
@@ -123,27 +109,12 @@ export interface Printer {
   _count?: { jobs: number };
 }
 
-export interface SlicerProfile {
-  id: string;
-  name: string;
-  technology: Technology;
-  printerKind: PrinterKind | null;
-  description: string | null;
-  machineConfig: string | null;
-  processConfig: string | null;
-  materialConfig: string | null;
-  outputFormat: string;
-  extraArgs: string | null;
-  isDefault: boolean;
-}
-
 export interface ModelDetail extends ModelSummary {
   sourceUrl: string | null;
   license: string | null;
   notes: string | null;
   files: ModelFile[];
   jobs: PrintJob[];
-  sliceTasks: SliceTask[];
   /** Which uploaded image is the library cover, resolved server-side. */
   coverFileId: string | null;
 }

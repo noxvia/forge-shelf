@@ -24,10 +24,14 @@ Input is a JSON spec on argv[1]:
 Prints a JSON summary on stdout.
 """
 import json
+import os
 import sys
 
 import numpy as np
 import trimesh
+
+# write3mf lives beside this script.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def place(mesh: trimesh.Trimesh, item: dict) -> trimesh.Trimesh:
@@ -81,15 +85,32 @@ def main() -> int:
         })
 
     combined = trimesh.util.concatenate(parts)
-    combined.export(spec['output'])
+    output = spec['output']
+    fmt = (spec.get('format') or '').lower() or ('3mf' if output.lower().endswith('.3mf') else 'stl')
+
+    if fmt == '3mf':
+        # Each object stays separate so the slicer can select, move and hollow
+        # them individually. Written directly rather than via trimesh, whose 3MF
+        # exporter emits build items referencing object ids it never defines.
+        from write3mf import write_3mf
+
+        write_3mf(
+            output,
+            [(item.get('name') or f'object_{i + 1}', m.vertices, m.faces)
+             for i, (item, m) in enumerate(zip(items, parts))],
+        )
+    else:
+        combined.export(output)
 
     lo, hi = combined.bounds
     size = hi - lo
 
     result = {
         'ok': True,
+        'format': fmt,
         'items': len(parts),
         'faces': int(len(combined.faces)),
+        'triangles': int(len(combined.faces)),
         'watertight': bool(combined.is_watertight),
         'boundsMin': [round(float(v), 2) for v in lo],
         'boundsMax': [round(float(v), 2) for v in hi],

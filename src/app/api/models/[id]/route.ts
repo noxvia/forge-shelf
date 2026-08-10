@@ -25,24 +25,13 @@ export const GET = handler(async (_req: Request, { params }: Ctx) => {
   });
   if (!model) throw new HttpError('Model not found', 404);
 
-  // Slice tasks aren't a direct relation of Model; fetch them via its files.
-  const tasks = await prisma.sliceTask.findMany({
-    where: { inputFile: { modelId: params.id } },
-    orderBy: { createdAt: 'desc' },
-    take: 20,
-    include: {
-      profile: { select: { id: true, name: true, technology: true, outputFormat: true } },
-      inputFile: { select: { id: true, filename: true } },
-      outputFile: { select: { id: true, filename: true, sizeBytes: true } },
-    },
-  });
 
   // Resolve which uploaded image is the cover here, so the client never has to
   // reason about storage paths.
   const coverFileId =
     model.files.find((f) => f.storagePath === model.thumbnailPath)?.id ?? null;
 
-  return ok({ ...model, sliceTasks: tasks, coverFileId });
+  return ok({ ...model, coverFileId });
 });
 
 const patchBody = z.object({

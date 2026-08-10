@@ -30,18 +30,20 @@ export const env = {
     return int('MAX_UPLOAD_MB', 2048) * 1024 * 1024;
   },
 
-  // Slicer binaries
-  get orcaBin() {
-    return str('ORCA_BIN', '/opt/orca/AppRun');
-  },
-  get prusaBin() {
-    return str('PRUSA_BIN', '/usr/bin/prusa-slicer');
-  },
+  /** UVtools — inspects sliced files for resin traps, islands, suction cups. */
   get uvtoolsBin() {
     return str('UVTOOLS_BIN', '/opt/uvtools/usr/bin/UVtoolsCmd');
   },
-  get sliceTimeoutMs() {
-    return int('SLICE_TIMEOUT_SECONDS', 900) * 1000;
+
+  /**
+   * Where STORAGE_DIR appears on the *host*, when the volume is a bind mount.
+   *
+   * The container sees /data; a desktop slicer on the same machine needs the
+   * real path. Without this the "open in" buttons can't be offered, so they
+   * hide themselves rather than producing a path that doesn't resolve.
+   */
+  get hostDataDir(): string | null {
+    return process.env.HOST_DATA_DIR?.trim() || null;
   },
   /** Post-slice risk detection. Scales with layer count, so give it room. */
   get issueCheckTimeoutMs() {
@@ -51,12 +53,17 @@ export const env = {
   get issueCheckEnabled() {
     return (process.env.ISSUE_CHECK ?? 'true').toLowerCase() !== 'false';
   },
-  /** Interpreter used for mesh pre-processing (drain holes). */
+  /** Interpreter that runs plate export, mesh tools and plugins. */
   get pythonBin() {
     return str('PYTHON_BIN', 'python3');
   },
-  get drillTimeoutMs() {
-    return int('DRILL_TIMEOUT_SECONDS', 300) * 1000;
+  /** Ceiling on a single mesh operation. */
+  get meshTimeoutMs() {
+    return int('MESH_TIMEOUT_SECONDS', 300) * 1000;
+  },
+  /** Where editing plugins are discovered. Mounted, so they need no rebuild. */
+  get pluginsDir() {
+    return str('PLUGINS_DIR', '/data/plugins');
   },
 
   // Worker cadence

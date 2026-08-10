@@ -31,8 +31,24 @@ case "$ROLE" in
     # `db push` keeps the database in sync with schema.prisma without carrying a
     # migration history. Fine for a single-tenant self-hosted app; it refuses to
     # run rather than destroy data if a change would be lossy.
+    #
+    # ALLOW_DATA_LOSS exists for upgrades that intentionally remove something —
+    # dropping the slicing tables, say. It is opt-in and per-run on purpose: the
+    # default has to be the one that protects a library you cannot re-create.
     echo "[entrypoint] syncing schema"
-    npx prisma db push --skip-generate
+    if [ "${ALLOW_DATA_LOSS:-false}" = "true" ]; then
+      echo "[entrypoint] ALLOW_DATA_LOSS=true — destructive schema changes are permitted"
+      npx prisma db push --skip-generate --accept-data-loss
+    else
+      npx prisma db push --skip-generate || {
+        echo ""
+        echo "[entrypoint] Schema sync refused because it would drop data."
+        echo "[entrypoint] If that is expected (for example upgrading past the"
+        echo "[entrypoint] in-container slicer), set ALLOW_DATA_LOSS=true for one"
+        echo "[entrypoint] run. Your model files on disk are never touched by this."
+        exit 1
+      }
+    fi
     echo "[entrypoint] seeding defaults (idempotent)"
     npx tsx prisma/seed.ts || echo "[entrypoint] seed skipped"
     exec npx next start -p "${PORT:-3000}"

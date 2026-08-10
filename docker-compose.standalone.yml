@@ -74,7 +74,6 @@ services:
       DATABASE_URL: postgresql://forge:CHANGEME-database-password@db:5432/forgeshelf?schema=public
       APP_SECRET: CHANGEME-run-openssl-rand-hex-32
       STORAGE_DIR: /data
-      SLICE_TIMEOUT_SECONDS: 900
       WORKER_POLL_MS: 3000
       PRINTER_POLL_MS: 10000
     volumes:

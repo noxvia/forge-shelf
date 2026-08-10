@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { ok, handler, HttpError } from '@/lib/json';
 import { canPrint, adapterFor } from '@/lib/printers';
 import { ACTIVE_JOB_STATUSES } from '@/lib/jobs';
-import { blockingIssues, type IssueReport } from '@/lib/slicer/issues';
+import { blockingIssues, type IssueReport } from '@/lib/tools/issues';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';

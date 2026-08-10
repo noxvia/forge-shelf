@@ -11,7 +11,6 @@ export const GET = handler(async () => {
     orderBy: { updatedAt: 'desc' },
     include: {
       printer: { select: { id: true, name: true, kind: true, buildX: true, buildY: true, buildZ: true } },
-      profile: { select: { id: true, name: true, technology: true } },
       _count: { select: { items: true } },
     },
   });
@@ -21,7 +20,6 @@ export const GET = handler(async () => {
 const createBody = z.object({
   name: z.string().trim().min(1).max(160),
   printerId: z.string().min(1).nullable().optional(),
-  profileId: z.string().min(1).nullable().optional(),
   /** Optional starting mesh, so "arrange this model" is one step. */
   fileId: z.string().min(1).optional(),
 });
@@ -29,7 +27,7 @@ const createBody = z.object({
 export const POST = handler(async (req: Request) => {
   const parsed = createBody.safeParse(await req.json());
   if (!parsed.success) throw new HttpError(parsed.error.issues[0].message, 422);
-  const { name, printerId, profileId, fileId } = parsed.data;
+  const { name, printerId, fileId } = parsed.data;
 
   if (fileId) {
     const file = await prisma.modelFile.findUnique({
@@ -46,13 +44,11 @@ export const POST = handler(async (req: Request) => {
     data: {
       name,
       printerId: printerId ?? null,
-      profileId: profileId ?? null,
       items: fileId ? { create: [{ fileId }] } : undefined,
     },
     include: {
       items: { include: { file: true } },
       printer: { select: { id: true, name: true, buildX: true, buildY: true, buildZ: true } },
-      profile: { select: { id: true, name: true, technology: true } },
     },
   });
 

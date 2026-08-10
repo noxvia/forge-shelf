@@ -3,14 +3,13 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import clsx from 'clsx';
-import { Boxes, Printer, ListChecks, SlidersHorizontal, Activity, Grid3x3 } from 'lucide-react';
+import { Boxes, Printer, ListChecks, Activity, Grid3x3 } from 'lucide-react';
 
 const LINKS = [
   { href: '/', label: 'Library', icon: Boxes },
   { href: '/plates', label: 'Plates', icon: Grid3x3 },
   { href: '/printers', label: 'Printers', icon: Printer },
   { href: '/jobs', label: 'Jobs', icon: ListChecks },
-  { href: '/profiles', label: 'Profiles', icon: SlidersHorizontal },
   { href: '/system', label: 'System', icon: Activity },
 ];
 

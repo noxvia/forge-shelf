@@ -1,4 +1,4 @@
-﻿services:
+services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -18,7 +18,7 @@
     build:
       context: .
       args:
-        INSTALL_SLICERS: ${INSTALL_SLICERS:-true}
+        INSTALL_TOOLS: ${INSTALL_TOOLS:-true}
     image: ${IMAGE:-forge-shelf:local}
     restart: unless-stopped
     command: ['web']
@@ -30,9 +30,10 @@
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       STORAGE_DIR: /data
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-2048}
-      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
+      ALLOW_DATA_LOSS: ${ALLOW_DATA_LOSS:-false}
       UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-}
+      PLUGINS_DIR: ${PLUGINS_DIR:-/data/plugins}
       SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}
     ports:
       - '${APP_PORT:-8770}:3000'
@@ -43,7 +44,7 @@
     build:
       context: .
       args:
-        INSTALL_SLICERS: ${INSTALL_SLICERS:-true}
+        INSTALL_TOOLS: ${INSTALL_TOOLS:-true}
     image: ${IMAGE:-forge-shelf:local}
     restart: unless-stopped
     command: ['worker']
@@ -56,10 +57,9 @@
       DATABASE_URL: ${DATABASE_URL}
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       STORAGE_DIR: /data
-      ORCA_BIN: ${ORCA_BIN:-/opt/orca/AppRun}
-      PRUSA_BIN: ${PRUSA_BIN:-/usr/bin/prusa-slicer}
       UVTOOLS_BIN: ${UVTOOLS_BIN:-/opt/uvtools/usr/bin/UVtoolsCmd}
-      SLICE_TIMEOUT_SECONDS: ${SLICE_TIMEOUT_SECONDS:-900}
+      HOST_DATA_DIR: ${HOST_DATA_DIR:-}
+      PLUGINS_DIR: ${PLUGINS_DIR:-/data/plugins}
       WORKER_POLL_MS: ${WORKER_POLL_MS:-3000}
       PRINTER_POLL_MS: ${PRINTER_POLL_MS:-10000}
       SDCP_BROADCAST: ${SDCP_BROADCAST:-255.255.255.255}

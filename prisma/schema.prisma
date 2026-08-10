@@ -29,14 +29,6 @@ enum PrinterKind {
   RESIN_SDCP // Elegoo / Anycubic ChiTu SDCP over LAN
 }
 
-enum TaskStatus {
-  QUEUED
-  RUNNING
-  DONE
-  FAILED
-  CANCELLED
-}
-
 enum JobStatus {
   QUEUED
   UPLOADING
@@ -79,9 +71,13 @@ model Model {
 
 model ModelFile {
   id String @id @default(cuid())
-  /// Null for output produced from a build plate, which spans several models.
+  /// Null for a plate export, which spans several models.
   modelId String?
   model   Model?  @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  /// Set when this file was exported from a build plate.
+  plateId String?
+  plate   Plate?  @relation("PlateExports", fields: [plateId], references: [id], onDelete: SetNull)
 
   kind     FileKind
   filename String
@@ -105,12 +101,11 @@ model ModelFile {
 
   createdAt DateTime @default(now())
 
-  sliceInputs  SliceTask[] @relation("SliceInput")
-  sliceOutputs SliceTask[] @relation("SliceOutput")
-  jobs         PrintJob[]
-  plateItems   PlateItem[]
+  jobs       PrintJob[]
+  plateItems PlateItem[]
 
   @@index([modelId])
+  @@index([plateId])
   @@index([kind])
   @@index([sha256])
 }
@@ -119,32 +114,25 @@ model ModelFile {
 // Build plates
 //
 // A plate is an arrangement of meshes in printer space. Each item carries its
-// own transform; those are baked into the geometry before slicing, because
-// PrusaSlicer's CLI transform flags apply to everything it loads rather than
-// per object.
+// own transform; those are baked into one mesh on export, ready to open in a
+// desktop slicer.
 // ---------------------------------------------------------------------------
 
 model Plate {
-  id   String  @id @default(cuid())
-  name String
+  id    String  @id @default(cuid())
+  name  String
   notes String?
 
   /// Which machine's build volume the layout is checked against.
   printerId String?
   printer   Printer? @relation(fields: [printerId], references: [id], onDelete: SetNull)
 
-  /// Remembered between edits so slicing a plate is one click.
-  profileId String?
-  profile   SlicerProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
-
-  /// Last used per-slice overrides (hollowing, supports, drain holes…).
-  options Json?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  items PlateItem[]
-  tasks SliceTask[]
+  items   PlateItem[]
+  /// Combined meshes exported from this arrangement, ready to open in a slicer.
+  exports ModelFile[] @relation("PlateExports")
 
   @@index([updatedAt])
 }
@@ -190,76 +178,6 @@ model Collection {
   description String?
   createdAt   DateTime @default(now())
   models      Model[]  @relation("ModelCollections")
-}
-
-// ---------------------------------------------------------------------------
-// Slicing
-// ---------------------------------------------------------------------------
-
-model SlicerProfile {
-  id          String      @id @default(cuid())
-  name        String      @unique
-  technology  Technology
-  /// Restricts this profile to one printer family; null means any.
-  printerKind PrinterKind?
-  description String?
-
-  /// Raw slicer configuration, stored inline so profiles are portable and
-  /// survive container rebuilds. FDM profiles hold OrcaSlicer JSON bundles;
-  /// SLA profiles hold PrusaSlicer .ini text.
-  machineConfig  String?
-  processConfig  String?
-  materialConfig String?
-
-  /// Extension of the produced file: "gcode.3mf", "ctb", "goo", "sl1"…
-  outputFormat String
-  /// Extra CLI arguments, whitespace separated.
-  extraArgs    String?
-
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tasks  SliceTask[]
-  plates Plate[]
-
-  @@index([technology])
-}
-
-model SliceTask {
-  id String @id @default(cuid())
-
-  /// Either a single mesh…
-  inputFileId String?
-  inputFile   ModelFile? @relation("SliceInput", fields: [inputFileId], references: [id], onDelete: Cascade)
-
-  /// …or a whole build plate, baked to one mesh at slice time.
-  plateId String?
-  plate   Plate?  @relation(fields: [plateId], references: [id], onDelete: Cascade)
-
-  outputFileId String?
-  outputFile   ModelFile? @relation("SliceOutput", fields: [outputFileId], references: [id], onDelete: SetNull)
-
-  profileId String
-  profile   SlicerProfile @relation(fields: [profileId], references: [id])
-
-  status TaskStatus @default(QUEUED)
-  log    String?
-  error  String?
-
-  /// Per-slice overrides layered on top of the profile: hollowing, supports,
-  /// orientation and scale. Resin especially needs these per model rather than
-  /// per profile.
-  options Json?
-
-  /// If set, the worker queues a print on this printer once slicing succeeds.
-  autoPrintPrinterId String?
-
-  createdAt  DateTime  @default(now())
-  startedAt  DateTime?
-  finishedAt DateTime?
-
-  @@index([status, createdAt])
 }
 
 // ---------------------------------------------------------------------------

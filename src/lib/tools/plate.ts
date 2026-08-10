@@ -14,6 +14,8 @@ import { run, exists } from './run';
 
 export interface PlateItemSpec {
   path: string;
+  /** Carried into the 3MF so objects are identifiable in the slicer. */
+  name?: string;
   posX: number;
   posY: number;
   posZ: number;
@@ -31,6 +33,8 @@ export interface BakeResult {
   boundsMin?: [number, number, number];
   boundsMax?: [number, number, number];
   sizeMm?: [number, number, number];
+  triangles?: number;
+  format?: string;
   /** Present when a build volume was supplied. */
   fits?: boolean;
   /** Which axes overflow, so the message can say which way it doesn't fit. */
@@ -46,6 +50,7 @@ export async function bakePlate(
   items: PlateItemSpec[],
   outputPath: string,
   opts: {
+    format?: '3mf' | 'stl';
     plate?: { x: number; y: number; z: number } | null;
     workDir: string;
     timeoutMs?: number;
@@ -59,7 +64,7 @@ export async function bakePlate(
   const specPath = path.join(opts.workDir, 'plate-spec.json');
   await fsp.writeFile(
     specPath,
-    JSON.stringify({ output: outputPath, plate: opts.plate ?? undefined, items }),
+    JSON.stringify({ output: outputPath, format: opts.format, plate: opts.plate ?? undefined, items }),
     'utf8',
   );
 
@@ -67,7 +72,7 @@ export async function bakePlate(
   try {
     result = await run(env.pythonBin, [script, specPath], {
       cwd: opts.workDir,
-      timeoutMs: opts.timeoutMs ?? env.drillTimeoutMs,
+      timeoutMs: opts.timeoutMs ?? env.meshTimeoutMs,
       onLog: opts.onLog,
       useXvfb: false,
     });

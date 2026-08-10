@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamicImport from 'next/dynamic';
 import Link from 'next/link';
 import clsx from 'clsx';
-import { Loader2, Plus, Scissors, Save, Check } from 'lucide-react';
-import { api, patch, post, humanSize } from '@/lib/api-client';
-import type { SlicerProfile, Printer, ModelSummary } from '@/lib/types';
-import { ResinOptions, type ResinOptionsValue } from './ResinOptions';
+import { Loader2, Plus, PackageOpen, Save, Check } from 'lucide-react';
+import { api, patch, post, humanSize, relativeTime } from '@/lib/api-client';
+import type { Printer, ModelSummary } from '@/lib/types';
 import type { PlateItem, BuildVolume } from './PlateEditor';
+import { OpenInSlicer } from './OpenInSlicer';
 
 const PlateEditor = dynamicImport(() => import('./PlateEditor').then((m) => m.PlateEditor), {
   ssr: false,
@@ -23,18 +23,9 @@ interface Plate {
   id: string;
   name: string;
   printerId: string | null;
-  profileId: string | null;
-  options: Record<string, unknown> | null;
   items: PlateItem[];
   printer: { id: string; name: string; buildX: number | null; buildY: number | null; buildZ: number | null } | null;
-  profile: { id: string; name: string; technology: string } | null;
-  tasks?: {
-    id: string;
-    status: string;
-    error: string | null;
-    outputFile: { id: string; filename: string; sizeBytes: string; meta?: unknown } | null;
-    profile: { name: string };
-  }[];
+  exports?: { id: string; filename: string; sizeBytes: string; createdAt: string }[];
 }
 
 /** Falls back to a common resin plate when no printer is chosen yet. */
@@ -42,7 +33,6 @@ const DEFAULT_VOLUME: BuildVolume = { x: 218.88, y: 122.88, z: 220 };
 
 export function PlateWorkspace({ plateId }: { plateId: string }) {
   const [plate, setPlate] = useState<Plate | null>(null);
-  const [profiles, setProfiles] = useState<SlicerProfile[]>([]);
   const [printers, setPrinters] = useState<Printer[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +40,7 @@ export function PlateWorkspace({ plateId }: { plateId: string }) {
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [resinOptions, setResinOptions] = useState<ResinOptionsValue>({});
+  const [format, setFormat] = useState<'3mf' | 'stl'>('3mf');
 
   const load = useCallback(async () => {
     try {
@@ -64,16 +54,8 @@ export function PlateWorkspace({ plateId }: { plateId: string }) {
 
   useEffect(() => {
     void load();
-    api<SlicerProfile[]>('/api/profiles').then(setProfiles).catch(() => setProfiles([]));
     api<Printer[]>('/api/printers').then(setPrinters).catch(() => setPrinters([]));
   }, [load]);
-
-  // Poll only while a slice is running.
-  useEffect(() => {
-    if (!plate?.tasks?.some((t) => t.status === 'QUEUED' || t.status === 'RUNNING')) return;
-    const timer = setInterval(() => void load(), 4000);
-    return () => clearInterval(timer);
-  }, [plate, load]);
 
   const volume: BuildVolume = useMemo(() => {
     const p = plate?.printer;
@@ -116,7 +98,6 @@ export function PlateWorkspace({ plateId }: { plateId: string }) {
   }, [plateId]);
 
   const selected = plate?.items.find((i) => i.id === selectedId) ?? null;
-  const selectedProfile = profiles.find((p) => p.id === plate?.profileId);
 
   if (error && !plate) return <p className="rounded bg-bad/10 px-4 py-3 text-sm text-bad">{error}</p>;
   if (!plate) {
@@ -222,7 +203,7 @@ export function PlateWorkspace({ plateId }: { plateId: string }) {
           )}
 
           <section className="card space-y-3 p-3">
-            <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">Slice</h2>
+            <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">Export</h2>
 
             <div>
               <label className="label" htmlFor="plate-printer">Printer</label>
@@ -236,83 +217,71 @@ export function PlateWorkspace({ plateId }: { plateId: string }) {
               </select>
             </div>
 
-            <div>
-              <label className="label" htmlFor="plate-profile">Profile</label>
-              <select id="plate-profile" className="w-full" value={plate.profileId ?? ''}
-                onChange={async (e) => {
-                  await patch(`/api/plates/${plateId}`, { profileId: e.target.value || null });
-                  void load();
-                }}>
-                <option value="">Choose a profile…</option>
-                {profiles.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name} ({p.technology})</option>
-                ))}
-              </select>
-            </div>
+            <p className="px-1 text-xs text-muted">
+              Exports the whole arrangement as one file. 3MF keeps each object
+              separate so you can still select and hollow them individually in your
+              slicer; STL merges everything into a single solid.
+            </p>
 
-            {selectedProfile?.technology === 'SLA' && (
-              <ResinOptions value={resinOptions} onChange={setResinOptions} />
-            )}
+            <div className="flex gap-2">
+              {(['3mf', 'stl'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={clsx('flex-1 justify-center', format === f ? 'btn-primary' : 'btn-secondary')}
+                  onClick={() => setFormat(f)}
+                >
+                  {f.toUpperCase()}
+                </button>
+              ))}
+            </div>
 
             <button
               type="button"
               className="btn-primary w-full justify-center"
-              disabled={busy || plate.items.length === 0 || !plate.profileId}
+              disabled={busy || plate.items.length === 0}
               onClick={async () => {
                 setBusy(true);
                 setError(null);
                 try {
+                  // Export what's on screen, not what was last saved.
                   if (dirty) await save();
-                  const { drainHoleCount, drainHoleDiameterMm, ...rest } = resinOptions;
-                  const options = {
-                    ...rest,
-                    ...(drainHoleCount
-                      ? { drainHoles: { count: drainHoleCount, diameterMm: drainHoleDiameterMm ?? 3 } }
-                      : {}),
-                  };
-                  const res = await post<{ warnings?: string[] }>(`/api/plates/${plateId}/slice`, {
-                    options: Object.keys(options).length ? options : undefined,
-                  });
-                  setNotice(res.warnings?.length ? res.warnings.join(' ') : 'Plate queued for slicing');
+                  const res = await post<{ objects: number; warnings?: string[] }>(
+                    `/api/plates/${plateId}/export`,
+                    { format },
+                  );
+                  setNotice(
+                    res.warnings?.length
+                      ? res.warnings.join(' ')
+                      : `Exported ${res.objects} object${res.objects === 1 ? '' : 's'} as ${format.toUpperCase()}`,
+                  );
                   await load();
                 } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Could not queue the plate');
+                  setError(err instanceof Error ? err.message : 'Could not export the plate');
                 } finally {
                   setBusy(false);
                 }
               }}
             >
-              <Scissors size={14} />
-              Slice plate
+              <PackageOpen size={14} />
+              Export plate
             </button>
           </section>
 
-          {plate.tasks && plate.tasks.length > 0 && (
+          {plate.exports && plate.exports.length > 0 && (
             <section className="card p-3">
               <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                Recent slices
+                Export
               </h2>
-              <ul className="space-y-2 text-sm">
-                {plate.tasks.map((t) => (
-                  <li key={t.id} className="rounded bg-panel2 p-2">
-                    <p className="flex items-center gap-2">
-                      <span className={clsx(
-                        'rounded px-1.5 py-0.5 text-xs',
-                        t.status === 'DONE' && 'bg-good/15 text-good',
-                        t.status === 'FAILED' && 'bg-bad/15 text-bad',
-                        (t.status === 'QUEUED' || t.status === 'RUNNING') && 'bg-accent2/15 text-accent2',
-                      )}>{t.status.toLowerCase()}</span>
-                      <span className="truncate text-muted">{t.profile.name}</span>
-                    </p>
-                    {t.outputFile && (
-                      <p className="mt-1 truncate text-xs text-good">
-                        {t.outputFile.filename} · {humanSize(t.outputFile.sizeBytes)}
-                      </p>
-                    )}
-                    {t.error && <p className="mt-1 text-xs text-bad">{t.error}</p>}
-                  </li>
-                ))}
-              </ul>
+              {plate.exports.map((f) => (
+                <div key={f.id} className="space-y-2">
+                  <p className="truncate text-sm">{f.filename}</p>
+                  <p className="text-xs text-muted">
+                    {humanSize(f.sizeBytes)} · {relativeTime(f.createdAt)}
+                  </p>
+                  <OpenInSlicer fileId={f.id} filename={f.filename} />
+                </div>
+              ))}
             </section>
           )}
         </aside>
