@@ -4,7 +4,7 @@
  * relations are only partially included.
  */
 
-export type FileKind = 'MESH' | 'SLICED' | 'IMAGE' | 'DOC' | 'ARCHIVE';
+export type FileKind = 'MESH' | 'PLATE' | 'SLICED' | 'IMAGE' | 'DOC' | 'ARCHIVE';
 export type Technology = 'FDM' | 'SLA';
 export type PrinterKind = 'FDM_BAMBU' | 'RESIN_SDCP';
 export type JobStatus =
@@ -141,6 +141,7 @@ export const PRINTER_KIND_LABEL: Record<PrinterKind, string> = {
 
 export const FILE_KIND_LABEL: Record<FileKind, string> = {
   MESH: 'Model',
+  PLATE: 'Build plate',
   SLICED: 'Print-ready',
   IMAGE: 'Image',
   DOC: 'Document',

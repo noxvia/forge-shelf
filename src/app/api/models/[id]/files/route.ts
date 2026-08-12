@@ -12,7 +12,7 @@ import {
   removeQuietly,
   ensureStorage,
 } from '@/lib/storage';
-import { meshStats } from '@/lib/mesh';
+import { meshStats, is3mfProject } from '@/lib/mesh';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,18 +79,29 @@ export const PUT = handler(async (req: Request, { params }: Ctx) => {
   // to a size where a full read is sane. Bigger meshes still catalogue fine,
   // just without volume figures.
   let stats = null;
+  let finalKind = kind;
   const STATS_LIMIT = 400 * 1024 * 1024;
+
   if (kind === FileKind.MESH && written.size <= STATS_LIMIT) {
     try {
-      stats = meshStats(name, await readFileBuffer(relPath));
+      const buf = await readFileBuffer(relPath);
+
+      // A .3mf is either geometry or a slicer project; only the contents say
+      // which. Decided here rather than in classify(), which sees a name only.
+      if (/\.3mf$/i.test(name) && !kindOverride && is3mfProject(buf)) {
+        finalKind = FileKind.PLATE;
+      } else {
+        stats = meshStats(name, buf);
+      }
     } catch (err) {
-      console.warn('[upload] mesh stats failed for', name, err);
+      console.warn('[upload] could not inspect', name, err);
     }
   }
 
   const file = await prisma.modelFile.update({
     where: { id: placeholder.id },
     data: {
+      kind: finalKind,
       storagePath: relPath,
       sizeBytes: BigInt(written.size),
       sha256: written.sha256,

@@ -53,6 +53,9 @@ const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'];
 const DOC_EXT = ['.txt', '.md', '.pdf', '.rtf', '.nfo'];
 const ARCHIVE_EXT = ['.zip', '.7z', '.rar', '.tar', '.gz'];
 
+/** Slicer project files — an arrangement plus settings, not raw geometry. */
+const PLATE_EXT = ['.lys', '.lyt', '.chitubox', '.ctbproj', '.prusaproject'];
+
 /** Sliced output, mapped to the technology that produced it. */
 const SLICED_EXT: Record<string, Technology> = {
   '.gcode': Technology.FDM,
@@ -81,6 +84,7 @@ export function classify(filename: string): { kind: FileKind; technology: Techno
 
   if (lower.endsWith('.gcode.3mf')) return { kind: FileKind.SLICED, technology: Technology.FDM };
   if (ext in SLICED_EXT) return { kind: FileKind.SLICED, technology: SLICED_EXT[ext] };
+  if (PLATE_EXT.includes(ext)) return { kind: FileKind.PLATE, technology: null };
   if (MESH_EXT.includes(ext)) return { kind: FileKind.MESH, technology: null };
   if (IMAGE_EXT.includes(ext)) return { kind: FileKind.IMAGE, technology: null };
   if (DOC_EXT.includes(ext)) return { kind: FileKind.DOC, technology: null };

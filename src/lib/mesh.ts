@@ -260,6 +260,35 @@ export function meshStats(filename: string, buf: Buffer): MeshStats | null {
   }
 }
 
+/**
+ * Is this .3mf a slicer *project* rather than plain geometry?
+ *
+ * Both are the same container, so the extension can't tell them apart. A
+ * project carries the slicer's own settings alongside the mesh — Bambu and
+ * Orca write project_settings.config, PrusaSlicer writes Slic3r_PE.config — and
+ * that is what distinguishes "an arrangement I made in a slicer" from "a model
+ * someone exported". Getting it wrong only misfiles it, so unreadable archives
+ * are treated as plain meshes.
+ */
+export function is3mfProject(buf: Buffer): boolean {
+  const MARKERS = [
+    /project_settings\.config$/i, // Bambu Studio, OrcaSlicer
+    /model_settings\.config$/i, // Bambu Studio
+    /slic3r_pe\.config$/i, // PrusaSlicer
+    /slic3r_pe_model\.config$/i,
+    /plate_\d+\.json$/i, // per-plate metadata
+  ];
+
+  try {
+    const files = unzipSync(new Uint8Array(buf), {
+      filter: (f) => MARKERS.some((m) => m.test(f.name)),
+    });
+    return Object.keys(files).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Volume in millilitres — the number that matters when budgeting resin. */
 export function volumeMl(volumeMm3: number): number {
   return Math.round((volumeMm3 / 1000) * 100) / 100;

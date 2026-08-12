@@ -14,12 +14,15 @@ import {
   ExternalLink,
   FileBox,
   Save,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { api, post, patch, del, humanSize, humanDuration, relativeTime } from '@/lib/api-client';
 import type { ModelDetail as ModelDetailType, ModelFile, Printer } from '@/lib/types';
 import { FILE_KIND_LABEL } from '@/lib/types';
 import { PrintIssues, type IssueReport } from './PrintIssues';
 import { ImageGallery } from './ImageGallery';
+import { FileDrop } from './FileDrop';
 import { OpenInSlicer } from './OpenInSlicer';
 
 // The viewer pulls in three.js and touches WebGL; keep it off the server.
@@ -41,6 +44,7 @@ export function ModelDetail({ modelId }: { modelId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -105,11 +109,14 @@ export function ModelDetail({ modelId }: { modelId: string }) {
   }
 
   const selectedFile = model.files.find((f) => f.id === selectedFileId) ?? null;
+  // Four sections the workflow actually has: geometry, slicer projects,
+  // machine-ready output, and pictures. Anything else falls through to Other.
   const meshes = model.files.filter((f) => f.kind === 'MESH');
+  const plates = model.files.filter((f) => f.kind === 'PLATE');
   const sliced = model.files.filter((f) => f.kind === 'SLICED');
   const images = model.files.filter((f) => f.kind === 'IMAGE');
   const others = model.files.filter(
-    (f) => f.kind !== 'MESH' && f.kind !== 'SLICED' && f.kind !== 'IMAGE',
+    (f) => !['MESH', 'PLATE', 'SLICED', 'IMAGE'].includes(f.kind),
   );
   const viewable = selectedFile && /\.(stl|3mf|obj)$/i.test(selectedFile.filename);
 
@@ -257,22 +264,54 @@ export function ModelDetail({ modelId }: { modelId: string }) {
         </div>
 
         <aside className="space-y-4">
+          <section className="card p-3">
+            <button
+              type="button"
+              className="mb-2 flex w-full items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-muted hover:text-ink"
+              onClick={() => setShowAdd((s) => !s)}
+            >
+              {showAdd ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              Add files
+            </button>
+            {showAdd && (
+              <FileDrop
+                modelId={modelId}
+                compact
+                onUploaded={(n) => {
+                  if (n > 0) flash(`Added ${n} file${n === 1 ? '' : 's'}`);
+                  void load();
+                  router.refresh();
+                }}
+              />
+            )}
+          </section>
+
           <FileList
-            title="Models"
+            title="Models (STL)"
             files={meshes}
             selectedId={selectedFileId}
             onSelect={setSelectedFileId}
             modelId={modelId}
             onChanged={load}
+            emptyHint="STL, OBJ, STEP or plain 3MF geometry."
           />
           <FileList
-            title="Print-ready"
+            title="Build plates"
+            files={plates}
+            selectedId={selectedFileId}
+            onSelect={setSelectedFileId}
+            modelId={modelId}
+            onChanged={load}
+            emptyHint="Slicer project files — a Bambu or Prusa .3mf, or a Lychee .lys — holding an arrangement and its settings."
+          />
+          <FileList
+            title="Sliced"
             files={sliced}
             selectedId={selectedFileId}
             onSelect={setSelectedFileId}
             modelId={modelId}
             onChanged={load}
-            emptyHint="Sliced files you upload (.ctb, .goo, .gcode.3mf) appear here and can be sent straight to a printer."
+            emptyHint="Machine-ready output (.ctb, .goo, .gcode.3mf). Upload from your slicer and it can go straight to a printer."
           />
           <ImageGallery
             modelId={modelId}

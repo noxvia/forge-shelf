@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Upload, X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import clsx from 'clsx';
 import { post, humanSize } from '@/lib/api-client';
+import { putFile } from './FileDrop';
 import type { ModelSummary } from '@/lib/types';
 
 interface FileProgress {
@@ -277,37 +278,3 @@ function update(list: FileProgress[], index: number, patch: Partial<FileProgress
   return list.map((p, i) => (i === index ? { ...p, ...patch } : p));
 }
 
-/**
- * XHR rather than fetch — fetch has no upload progress event, and a 300 MB STL
- * with no feedback feels broken.
- */
-function putFile(modelId: string, file: File, onProgress: (sent: number) => void): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open(
-      'PUT',
-      `/api/models/${modelId}/files?filename=${encodeURIComponent(file.name)}`,
-      true,
-    );
-    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream');
-
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
-      } else {
-        let message = `${xhr.status} ${xhr.statusText}`;
-        try {
-          message = JSON.parse(xhr.responseText).error ?? message;
-        } catch {
-          /* keep the status line */
-        }
-        reject(new Error(message));
-      }
-    };
-    xhr.onerror = () => reject(new Error('Network error during upload'));
-    xhr.send(file);
-  });
-}

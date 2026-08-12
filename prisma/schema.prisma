@@ -12,7 +12,8 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 enum FileKind {
-  MESH // .stl .3mf .obj .step — printable geometry
+  MESH // .stl .obj .step, plain .3mf — printable geometry
+  PLATE // slicer project files holding an arrangement: Bambu/Prusa .3mf, .lys
   SLICED // .gcode .gcode.3mf .ctb .goo .sl1 — machine-ready
   IMAGE // renders, reference photos
   DOC // instructions, licences, readmes
